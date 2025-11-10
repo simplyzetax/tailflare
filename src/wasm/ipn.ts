@@ -13,6 +13,7 @@ export async function createIPN(config: {
     go.run(instance).catch((err: any) => config.panicHandler?.(String(err)));
 
     return (globalThis as any).newIPN({
+        hostname: "tailflare",
         controlURL: config.controlURL,
         stateStorage: config.stateStorage,
         authKey: config.authKey ?? "",
