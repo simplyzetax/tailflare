@@ -4,7 +4,7 @@ import { createIPN } from "../wasm/ipn";
 const HEX_RE = /^[0-9a-fA-F]*$/;
 
 export class Tailscale extends DurableObject<Env> {
-    private ipn: any | null = null;
+    private ipn: IPN | null = null;
     private loginURL: string | null = null;
     private initialized = false;
     private currentState: string = "NoState";
@@ -86,7 +86,7 @@ export class Tailscale extends DurableObject<Env> {
 
     async login(): Promise<string> {
         await this.initialize();
-        this.ipn.login();
+        this.ipn?.login();
 
         while (!this.loginURL) {
             console.log("Waiting for login URL...");
@@ -106,7 +106,7 @@ export class Tailscale extends DurableObject<Env> {
         return;
     }
 
-    async proxy(url: string): Promise<Response | undefined> {
+    async proxy(request: Request): Promise<Response | undefined> {
         await this.initialize();
 
         if (this.currentState === "NeedsLogin") {
@@ -119,17 +119,18 @@ export class Tailscale extends DurableObject<Env> {
             await this.waitUntilReady();
         }
 
-        const res = await this.ipn.fetch(url);
-
-        // For network errors (status 0), return undefined to trigger our error handling
-        if (res.status === 0) {
-            console.log("Network error:", res.statusText);
+        const res = await this.ipn?.fetch(request);
+        if (!res) {
+            console.log("No response from Tailscale");
             return undefined;
         }
 
-        console.log("Response:", res);
+        if (!res.ok) {
+            console.log("Error response from Tailscale:", res.statusText);
+            return undefined;
+        }
 
-        const jsResponse = new Response(await res.text(), {
+        const jsResponse = new Response(res.body, {
             status: res.status,
             statusText: res.statusText,
             headers: res.headers,
