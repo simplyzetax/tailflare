@@ -66,7 +66,7 @@ Visit your Worker's `/login` endpoint and follow the authentication flow:
 
 ```bash
 curl https://your-worker.your-subdomain.workers.dev/login
-# Returns: { "login_url": "https://login.tailscale.com/a/..." }
+# Redirects to Tailscale login page
 ```
 
 ### 2. Check Node Status
@@ -75,7 +75,8 @@ Verify your Durable Object is ready:
 
 ```bash
 curl https://your-worker.your-subdomain.workers.dev/ready
-# Returns: { "ready": true, "tailnet": "your-tailnet.ts.net" }
+# Returns: { "ready": true } if the Durable Object is ready
+# Returns: { "ready": false } if the Durable Object is not ready
 ```
 
 ### 3. Proxy Requests
@@ -84,10 +85,10 @@ Send HTTP requests to any device in your Tailnet:
 
 ```bash
 # Proxy to internal service
-curl "https://your-worker.your-subdomain.workers.dev/proxy?url=http://nas.local:8080/api/status"
+curl "https://your-worker.your-subdomain.workers.dev/proxy?url=http://finns-macbook-air.taild2803.ts.net:8080/api/status"
 
 # Proxy with path
-curl "https://your-worker.your-subdomain.workers.dev/proxy?url=http://raspberrypi:3000/metrics"
+curl "https://your-worker.your-subdomain.workers.dev/proxy?url=http://finns-macbook-air.taild2803.ts.net:3000/metrics"
 ```
 
 ---
