@@ -8,53 +8,33 @@ export class Tailscale extends DurableObject<Env> {
     private ipn: IPN | null = null;
     private loginURL: string | null = null;
     private initialized = false;
-    private currentState: string = "NoState";
+    private currentState: IPNState = "NoState";
 
     public get isReady() {
         return this.currentState === "Running";
-    }
-
-    private hydratedMap = new Map<string, string>();
-
-    private hydrate() {
-        // load ALL keys
-        for (const [key, value] of this.ctx.storage.kv.list()) {
-            if (typeof value === "string" && HEX_RE.test(value)) {
-                this.hydratedMap.set(key, value);
-            }
-        }
-        const lu = this.hydratedMap.get("loginURL");
-        if (typeof lu === "string") this.loginURL = lu;
-    }
-
-    private getStateStorage() {
-        return {
-            getState: (key: string): string => {
-                const v = this.hydratedMap.get(key);
-                return (typeof v === "string" && HEX_RE.test(v)) ? v : "";
-            },
-            setState: (key: string, value: string): void => {
-                if (HEX_RE.test(value)) {
-                    this.hydratedMap.set(key, value);
-                    this.ctx.storage.kv.put(key, value);
-                }
-            },
-        };
     }
 
     private async initialize() {
         if (this.initialized) return;
         this.initialized = true;
 
-        this.hydrate();
-
         this.ipn = await createIPN({
-            stateStorage: this.getStateStorage(),
-            panicHandler: (msg) => console.error("TAILSCALE PANIC:", msg),
+            stateStorage: {
+                getState: (key: string): string => {
+                    const v = this.ctx.storage.kv.get(key);
+                    return (typeof v === "string" && HEX_RE.test(v)) ? v : "";
+                },
+                setState: (key: string, value: string): void => {
+                    if (HEX_RE.test(value)) {
+                        this.ctx.storage.kv.put(key, value);
+                    }
+                },
+            },
+            panicHandler: (msg) => durableObjectLogger.error("TS panic:", { msg }),
         });
 
         this.ipn.run({
-            notifyState: (state: string) => {
+            notifyState: (state: IPNState) => {
                 this.currentState = state;
                 durableObjectLogger.info("TS state:", { state });
             },
@@ -62,9 +42,7 @@ export class Tailscale extends DurableObject<Env> {
                 durableObjectLogger.info("TS netmap:", { nmJSON });
             },
             notifyBrowseToURL: (url: string) => {
-                // store login URL in both caches
                 this.loginURL = url;
-                this.hydratedMap.set("loginURL", url);
                 this.ctx.storage.kv.put("loginURL", url);
             },
             notifyPanicRecover: (err: string) => {
@@ -145,7 +123,6 @@ export class Tailscale extends DurableObject<Env> {
         this.loginURL = null;
         this.initialized = false;
         this.currentState = "NoState";
-        this.hydratedMap.clear();
         await this.ctx.storage.deleteAll();
         const keys = this.ctx.storage.kv.list();
         for (const [key] of keys) {
