@@ -7,10 +7,11 @@ export class Tailscale extends DurableObject<Env> {
     private ipn: any | null = null;
     private loginURL: string | null = null;
     private initialized = false;
-    private readyPromise: Promise<void> | null = null;
-    private resolveReady!: () => void;
-    private isReady = false;
     private currentState: string = "NoState";
+
+    public get isReady() {
+        return this.currentState === "Running";
+    }
 
     private hydratedMap = new Map<string, string>();
 
@@ -28,15 +29,12 @@ export class Tailscale extends DurableObject<Env> {
     private getStateStorage() {
         return {
             getState: (key: string): string => {
-                // ✅ always read from memory, not storage
                 const v = this.hydratedMap.get(key);
                 return (typeof v === "string" && HEX_RE.test(v)) ? v : "";
             },
             setState: (key: string, value: string): void => {
                 if (HEX_RE.test(value)) {
-                    // update memory first
                     this.hydratedMap.set(key, value);
-                    // persist asynchronously
                     this.ctx.storage.kv.put(key, value);
                 }
             },
@@ -47,11 +45,6 @@ export class Tailscale extends DurableObject<Env> {
         if (this.initialized) return;
         this.initialized = true;
 
-        this.readyPromise = new Promise((resolve) => {
-            this.resolveReady = resolve;
-        });
-
-        // ✅ MUST hydrate before creating IPN
         this.hydrate();
 
         this.ipn = await createIPN({
@@ -63,11 +56,6 @@ export class Tailscale extends DurableObject<Env> {
             notifyState: (state: string) => {
                 this.currentState = state;
                 console.log("TS state:", state);
-
-                if (state === "Running" && !this.isReady) {
-                    this.isReady = true;
-                    this.resolveReady();
-                }
             },
             notifyNetMap: (nmJSON: string) => {
                 console.log("TS netmap:", nmJSON);
@@ -107,22 +95,26 @@ export class Tailscale extends DurableObject<Env> {
         return this.loginURL;
     }
 
+    async warm(): Promise<void> {
+        await this.initialize();
+        while (!this.isReady) {
+            await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+        return;
+    }
+
     async proxy(url: string): Promise<string | undefined> {
         await this.initialize();
 
-        // ✅ If login needed → return proper message
         if (this.currentState === "NeedsLogin") {
             return undefined;
         }
 
-        // ✅ If starting → wait
         if (!this.isReady) {
             await this.waitUntilReady();
         }
 
         const res = await this.ipn.fetch(url);
-        console.log(res);
-        console.log(res.constructor.name);
         return await res.text();
     }
 
