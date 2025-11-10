@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { Tailscale } from "./durableobjects/Tailscale";
 import { errors } from "./utils/errors";
+import { tryCatch } from "./utils/try";
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -20,7 +21,8 @@ app.get("/proxy", async (c) => {
 
     const url = c.req.query("url");
     if (!url) return c.json({ error: "Missing url parameter" }, 400);
-    const cleanURL = new URL(url);
+    const cleanURL = await tryCatch(async () => new URL(url));
+    if (!cleanURL) return errors.badRequest.withMessage("Invalid url parameter").toResponse();
 
     const request = new Request(cleanURL.toString(), {
         method: c.req.method,
