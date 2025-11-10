@@ -10,7 +10,7 @@
     "migrations": [
         {
             "new_sqlite_classes": [
-                "TailscaleDO"
+                "Tailscale"
             ],
             "tag": "v1"
         }
@@ -18,8 +18,8 @@
     "durable_objects": {
         "bindings": [
             {
-                "class_name": "TailscaleDO",
-                "name": "TAILSCALE_DO"
+                "class_name": "Tailscale",
+                "name": "TAILSCALE"
             }
         ]
     },
