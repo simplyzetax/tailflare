@@ -1,18 +1,19 @@
 {
-    "name": "tailflare",
-    "version": "0.0.0",
-    "private": true,
-    "scripts": {
-        "deploy": "wrangler deploy",
-        "dev": "wrangler dev",
-        "start": "wrangler dev",
-        "cf-typegen": "wrangler types"
-    },
-    "devDependencies": {
-        "typescript": "^5.5.2",
-        "wrangler": "^4.46.0"
-    },
-    "dependencies": {
-        "hono": "^4.10.4"
-    }
+	"name": "tailflare",
+	"version": "0.0.0",
+	"private": true,
+	"scripts": {
+		"wasm:build": "cd vendor/tailscale/cmd/tsconnect && env GOOS=js GOARCH=wasm go build -o ../../../../src/wasm/tailscale.wasm ./wasm",
+		"deploy": "wrangler deploy",
+		"dev": "wrangler dev",
+		"start": "wrangler dev",
+		"cf-typegen": "wrangler types"
+	},
+	"devDependencies": {
+		"typescript": "^5.5.2",
+		"wrangler": "^4.46.0"
+	},
+	"dependencies": {
+		"hono": "^4.10.4"
+	}
 }

@@ -1,5 +1,5 @@
 import "./wasm_exec.js";
-import wasmBinary from "./main.wasm";
+import wasmBinary from "./tailscale.wasm";
 
 export async function createIPN(config: {
     stateStorage: { getState(key: string): string | null; setState(key: string, val: string): void };

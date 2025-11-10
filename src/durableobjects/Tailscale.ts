@@ -1,5 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
-import { createIPN } from "../ipn";
+import { createIPN } from "../wasm/ipn";
 
 const HEX_RE = /^[0-9a-fA-F]*$/;
 
@@ -89,8 +89,11 @@ export class Tailscale extends DurableObject<Env> {
         this.ipn.login();
 
         while (!this.loginURL) {
+            console.log("Waiting for login URL...");
             await new Promise((resolve) => setTimeout(resolve, 100));
         }
+
+        console.log("Login URL:", this.loginURL);
 
         return this.loginURL;
     }
@@ -103,19 +106,30 @@ export class Tailscale extends DurableObject<Env> {
         return;
     }
 
-    async proxy(url: string): Promise<string | undefined> {
+    async proxy(url: string): Promise<Response | undefined> {
         await this.initialize();
 
         if (this.currentState === "NeedsLogin") {
+            console.log("Needs login, redirecting to login URL...");
             return undefined;
         }
 
         if (!this.isReady) {
+            console.log("Not ready, waiting...");
             await this.waitUntilReady();
         }
 
         const res = await this.ipn.fetch(url);
-        return await res.text();
+
+        console.log("Response:", res);
+
+        const jsResponse = new Response(await res.text(), {
+            status: res.status,
+            statusText: res.statusText,
+            headers: res.headers,
+        });
+
+        return jsResponse;
     }
 
 }

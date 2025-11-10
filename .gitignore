@@ -12,6 +12,8 @@ lerna-debug.log*
 
 report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 
+src/wasm/tailscale.wasm
+
 # Runtime data
 
 pids

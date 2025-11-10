@@ -1,7 +1,6 @@
 # Tailflare
 
-> [!WARNING]
-> **Security Notice**: This project does not implement authentication or authorization. All Tailscale endpoints (`/login`, `/proxy`, `/ready`, etc.) are publicly accessible without any authentication. Anyone with access to your Worker URL can authenticate with your Tailscale account and proxy requests to devices in your Tailnet. **Do not deploy this in production without adding proper authentication.**
+> [!WARNING] > **Security Notice**: This project does not implement authentication or authorization. All Tailscale endpoints (`/login`, `/proxy`, `/ready`, etc.) are publicly accessible without any authentication. Anyone with access to your Worker URL can authenticate with your Tailscale account and proxy requests to devices in your Tailnet. **Do not deploy this in production without adding proper authentication.**
 
 Seamlessly connect Cloudflare Workers to your private Tailscale network. Run a persistent Tailscale node inside a Durable Object to securely proxy traffic from the edge directly to your Tailnet devices.
 
@@ -44,6 +43,7 @@ Tailflare embeds a full Tailscale node (via WASM) within a Cloudflare Durable Ob
 git clone https://github.com/simplyzetax/tailflare
 cd tailflare
 pnpm install
+pnpm wasm:build
 ```
 
 ### Deploy
@@ -107,11 +107,11 @@ curl "https://your-worker.your-subdomain.workers.dev/proxy?url=http://finns-macb
 
 ## Development
 
-| Command | Action |
-|---------|--------|
-| `pnpm run dev` | Start local dev server |
-| `pnpm run deploy` | Deploy to production |
-| `pnpm run test` | Run test suite |
+| Command           | Action                 |
+| ----------------- | ---------------------- |
+| `pnpm run dev`    | Start local dev server |
+| `pnpm run deploy` | Deploy to production   |
+| `pnpm run test`   | Run test suite         |
 
 ---
 
