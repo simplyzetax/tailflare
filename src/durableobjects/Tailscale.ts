@@ -122,6 +122,7 @@ export class Tailscale extends DurableObject<Env> {
 
         const res = await this.ipn.fetch(url);
         console.log(res);
+        console.log(res.constructor.name);
         return await res.text();
     }
 
