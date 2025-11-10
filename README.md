@@ -1,6 +1,11 @@
 # Tailflare
 
-> [!WARNING] > **Security Notice**: This project does not implement authentication or authorization. All Tailscale endpoints (`/login`, `/proxy`, `/ready`, etc.) are publicly accessible without any authentication. Anyone with access to your Worker URL can authenticate with your Tailscale account and proxy requests to devices in your Tailnet. **Do not deploy this in production without adding proper authentication.**
+> [!WARNING]
+> **Security Notice:** This project does not implement authentication or authorization.
+> All Tailscale endpoints (`/login`, `/proxy`, `/ready`, etc.) are publicly accessible without
+> any authentication. Anyone with access to your Worker URL can authenticate with your
+> Tailscale account and proxy requests to devices in your Tailnet.
+> **Do not deploy this in production without adding proper authentication.**
 
 Seamlessly connect Cloudflare Workers to your private Tailscale network. Run a persistent Tailscale node inside a Durable Object to securely proxy traffic from the edge directly to your Tailnet devices.
 
