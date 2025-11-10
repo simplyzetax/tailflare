@@ -14,6 +14,18 @@ export class Tailscale extends DurableObject<Env> {
         return this.currentState === "Running";
     }
 
+    // Initializing the Tailscale runtime in the constructor is EXPERIMENTAL and may be removed in the future.
+    constructor(state: DurableObjectState, env: Env) {
+        super(state, env);
+        this.ctx.blockConcurrencyWhile(async () => {
+            await this.initialize()
+            while (!this.isReady && this.currentState !== "NeedsLogin") {
+                await new Promise((resolve) => setTimeout(resolve, 10));
+            }
+            durableObjectLogger.info("Tailscale initialized with state:", { state: this.currentState });
+        });
+    }
+
     private async initialize() {
         if (this.initialized) return;
         this.initialized = true;
@@ -39,7 +51,7 @@ export class Tailscale extends DurableObject<Env> {
                 durableObjectLogger.info("TS state:", { state });
             },
             notifyNetMap: (nmJSON: string) => {
-                durableObjectLogger.info("TS netmap:", { nmJSON });
+                /*durableObjectLogger.info("TS netmap:", { nmJSON });*/
             },
             notifyBrowseToURL: (url: string) => {
                 this.loginURL = url;
@@ -51,20 +63,7 @@ export class Tailscale extends DurableObject<Env> {
         });
     }
 
-    private async waitUntilReady() {
-        if (this.isReady) return;
-
-        // Retry loop instead of fixed timeout
-        for (let i = 0; i < 50; i++) {
-            if (this.isReady) return;
-            if (this.currentState === "NeedsLogin") return;
-            await new Promise(res => setTimeout(res, 100));
-        }
-    }
-
-
     async login(): Promise<string> {
-        await this.initialize();
         this.ipn?.login();
 
         while (!this.loginURL) {
@@ -74,23 +73,10 @@ export class Tailscale extends DurableObject<Env> {
         return this.loginURL;
     }
 
-    async warm(): Promise<void> {
-        await this.initialize();
-        while (!this.isReady) {
-            await new Promise((resolve) => setTimeout(resolve, 100));
-        }
-        return;
-    }
-
     async proxy(request: Request): Promise<Response | undefined> {
-        await this.initialize();
 
         if (this.currentState === "NeedsLogin") {
             return undefined;
-        }
-
-        if (!this.isReady) {
-            await this.waitUntilReady();
         }
 
         const res = await this.ipn?.fetch(request);
@@ -102,18 +88,12 @@ export class Tailscale extends DurableObject<Env> {
             return undefined;
         }
 
-        const jsResponse = new Response(res.body, {
-            status: res.status,
-            statusText: res.statusText,
-            headers: res.headers,
-        });
+        const jsResponse = new Response(res.body, res.clone());
 
         return jsResponse;
     }
 
     async getPeers(): Promise<IPNNetMapPeerNode[]> {
-        await this.initialize();
-        await this.waitUntilReady();
         return this.ipn?.getPeers() ?? [];
     }
 
