@@ -1,0 +1,3 @@
+[submodule "vendor/tailscale"]
+	path = vendor/tailscale
+	url = git@github.com:simplyzetax/tailscale.git
