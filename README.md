@@ -1,5 +1,4 @@
-> [!WARNING]
-> **Security Notice:** This project does not implement authentication or authorization.
+> [!WARNING] > **Security Notice:** This project does not implement authentication or authorization.
 > All Tailscale endpoints (`/login`, `/proxy`, `/ready`, etc.) are publicly accessible without
 > any authentication. Anyone with access to your Worker URL can authenticate with your
 > Tailscale account and proxy requests to devices in your Tailnet.
@@ -74,17 +73,7 @@ curl https://your-worker.your-subdomain.workers.dev/login
 # Redirects to Tailscale login page
 ```
 
-### 2. Check Node Status
-
-Verify your Durable Object is ready:
-
-```bash
-curl https://your-worker.your-subdomain.workers.dev/ready
-# Returns: { "ready": true } if the Durable Object is ready
-# Returns: { "ready": false } if the Durable Object is not ready
-```
-
-### 3. Proxy Requests
+### 2. Proxy Requests
 
 Send HTTP requests to any device in your Tailnet:
 
@@ -116,7 +105,6 @@ curl "https://your-worker.your-subdomain.workers.dev/proxy?url=http://finns-macb
 | ----------------- | ---------------------- |
 | `pnpm run dev`    | Start local dev server |
 | `pnpm run deploy` | Deploy to production   |
-| `pnpm run test`   | Run test suite         |
 
 ---
 
@@ -124,7 +112,6 @@ curl "https://your-worker.your-subdomain.workers.dev/proxy?url=http://finns-macb
 
 - Durable Objects have [pricing](https://developers.cloudflare.com/durable-objects/platform/pricing/) based on requests and duration
 - Each Durable Object represents a single Tailscale node
-- Max request size limited by Workers runtime (100MB)
 - WebSocket connections not yet supported
 
 ---
