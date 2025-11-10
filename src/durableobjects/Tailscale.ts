@@ -121,6 +121,12 @@ export class Tailscale extends DurableObject<Env> {
 
         const res = await this.ipn.fetch(url);
 
+        // For network errors (status 0), return undefined to trigger our error handling
+        if (res.status === 0) {
+            console.log("Network error:", res.statusText);
+            return undefined;
+        }
+
         console.log("Response:", res);
 
         const jsResponse = new Response(await res.text(), {

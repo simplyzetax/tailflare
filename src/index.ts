@@ -15,7 +15,10 @@ app.get("/proxy", async (c) => {
     const url = c.req.query("url");
     if (!url) return c.json({ error: "Missing url parameter" }, 400);
 
-    return await tailscale.proxy(url);
+    const response = await tailscale.proxy(url);
+    if (!response) return c.json({ error: "Failed to proxy request. Please check if you are logged in and if the host you are trying to access is reachable." }, 500);
+
+    return response;
 });
 
 app.get("/ready", async (c) => {
