@@ -1,4 +1,5 @@
-# Tailflare
+<img src="https://i.imgur.com/EjG5URU.png" alt="Tailflare Logo" width="256" height="128" style="vertical-align: middle; margin-right: 16px;">
+
 
 > [!WARNING]
 > **Security Notice:** This project does not implement authentication or authorization.
