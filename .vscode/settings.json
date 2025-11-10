@@ -1,9 +1,0 @@
-{
-	"files.associations": {
-		"wrangler.json": "jsonc"
-	},
-	"go.toolsEnvVars": {
-		"GOOS": "js",
-		"GOARCH": "wasm"
-	}
-}
