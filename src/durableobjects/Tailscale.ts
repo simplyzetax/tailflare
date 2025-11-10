@@ -133,4 +133,20 @@ export class Tailscale extends DurableObject<Env> {
         return jsResponse;
     }
 
+    async destroy(): Promise<void> {
+        this.ipn?.logout();
+        this.ipn = null;
+        this.loginURL = null;
+        this.initialized = false;
+        this.currentState = "NoState";
+        this.hydratedMap.clear();
+        await this.ctx.storage.deleteAll();
+        const keys = this.ctx.storage.kv.list();
+        for (const [key] of keys) {
+            this.ctx.storage.kv.delete(key);
+        }
+
+        durableObjectLogger.info("TS destroyed");
+    }
+
 }
