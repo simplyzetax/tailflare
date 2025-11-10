@@ -27,8 +27,6 @@ app.get("/proxy", async (c) => {
         body: c.req.raw.body,
     });
 
-    console.log(typeof request.body);
-
     const response = await tailscale.proxy(request);
     if (!response) return c.json({ error: "Failed to proxy request. Please check if you are logged in and if the host you are trying to access is reachable." }, 500);
 

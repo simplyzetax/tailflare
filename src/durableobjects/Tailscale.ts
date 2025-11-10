@@ -1,5 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
 import { createIPN } from "../wasm/ipn";
+import { durableObjectLogger } from "../utils/logger";
 
 const HEX_RE = /^[0-9a-fA-F]*$/;
 
@@ -55,10 +56,10 @@ export class Tailscale extends DurableObject<Env> {
         this.ipn.run({
             notifyState: (state: string) => {
                 this.currentState = state;
-                console.log("TS state:", state);
+                durableObjectLogger.info("TS state:", { state });
             },
             notifyNetMap: (nmJSON: string) => {
-                console.log("TS netmap:", nmJSON);
+                durableObjectLogger.info("TS netmap:", { nmJSON });
             },
             notifyBrowseToURL: (url: string) => {
                 // store login URL in both caches
@@ -67,7 +68,7 @@ export class Tailscale extends DurableObject<Env> {
                 this.ctx.storage.kv.put("loginURL", url);
             },
             notifyPanicRecover: (err: string) => {
-                console.log("TS panic recovered:", err);
+                durableObjectLogger.info("TS panic recovered:", { err });
             },
         });
     }
@@ -89,11 +90,8 @@ export class Tailscale extends DurableObject<Env> {
         this.ipn?.login();
 
         while (!this.loginURL) {
-            console.log("Waiting for login URL...");
             await new Promise((resolve) => setTimeout(resolve, 100));
         }
-
-        console.log("Login URL:", this.loginURL);
 
         return this.loginURL;
     }
@@ -110,23 +108,19 @@ export class Tailscale extends DurableObject<Env> {
         await this.initialize();
 
         if (this.currentState === "NeedsLogin") {
-            console.log("Needs login, redirecting to login URL...");
             return undefined;
         }
 
         if (!this.isReady) {
-            console.log("Not ready, waiting...");
             await this.waitUntilReady();
         }
 
         const res = await this.ipn?.fetch(request);
         if (!res) {
-            console.log("No response from Tailscale");
             return undefined;
         }
 
         if (!res.ok) {
-            console.log("Error response from Tailscale:", res.statusText);
             return undefined;
         }
 
