@@ -1,25 +1,21 @@
 import { DurableObject } from "cloudflare:workers";
 import { createIPN } from "../wasm/ipn";
 import { durableObjectLogger } from "../utils/logger";
+import { errors } from "../utils/errors";
 
 const HEX_RE = /^[0-9a-fA-F]*$/;
 
 export class Tailscale extends DurableObject<Env> {
     private ipn: IPN | null = null;
     private loginURL: string | null = null;
-    private initialized = false;
     private currentState: IPNState = "NoState";
-
-    public get isReady() {
-        return this.currentState === "Running";
-    }
 
     // Initializing the Tailscale runtime in the constructor is EXPERIMENTAL and may be removed in the future.
     constructor(state: DurableObjectState, env: Env) {
         super(state, env);
         this.ctx.blockConcurrencyWhile(async () => {
             await this.initialize()
-            while (!this.isReady && this.currentState !== "NeedsLogin") {
+            while (this.currentState !== "Running" && this.currentState !== "NeedsLogin") {
                 await new Promise((resolve) => setTimeout(resolve, 10));
             }
             durableObjectLogger.info("Tailscale initialized with state:", { state: this.currentState });
@@ -27,8 +23,7 @@ export class Tailscale extends DurableObject<Env> {
     }
 
     private async initialize() {
-        if (this.initialized) return;
-        this.initialized = true;
+        if (this.currentState !== "NoState") return;
 
         this.ipn = await createIPN({
             stateStorage: {
@@ -76,21 +71,15 @@ export class Tailscale extends DurableObject<Env> {
     async proxy(request: Request): Promise<Response | undefined> {
 
         if (this.currentState === "NeedsLogin") {
-            return undefined;
+            return errors.tailscale.notAuthenticated.toResponse();
         }
 
         const res = await this.ipn?.fetch(request);
         if (!res) {
-            return undefined;
+            return errors.tailscale.proxyFailed.toResponse();
         }
 
-        if (!res.ok) {
-            return undefined;
-        }
-
-        const jsResponse = new Response(res.body, res.clone());
-
-        return jsResponse;
+        return new Response(res.body, res);
     }
 
     async getPeers(): Promise<IPNNetMapPeerNode[]> {
@@ -101,7 +90,6 @@ export class Tailscale extends DurableObject<Env> {
         this.ipn?.logout();
         this.ipn = null;
         this.loginURL = null;
-        this.initialized = false;
         this.currentState = "NoState";
         await this.ctx.storage.deleteAll();
         const keys = this.ctx.storage.kv.list();

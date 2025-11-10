@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { Tailscale } from "./durableobjects/Tailscale";
+import { errors } from "./utils/errors";
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -28,7 +29,7 @@ app.get("/proxy", async (c) => {
     });
 
     const response = await tailscale.proxy(request);
-    if (!response) return c.json({ error: "Failed to proxy request. Please check if you are logged in and if the host you are trying to access is reachable." }, 500);
+    if (!response) return errors.tailscale.notAuthenticated.toResponse();
 
     return response;
 });
@@ -37,18 +38,6 @@ app.get("/peers", async (c) => {
     const tailscale = c.env.TAILSCALE.getByName("singleton");
     const peers = await tailscale.getPeers();
     return c.json(peers);
-});
-
-app.get("/ready", async (c) => {
-    const tailscale = c.env.TAILSCALE.getByName("singleton");
-    const ready = await tailscale.isReady;
-    return c.json({ ready });
-});
-
-app.get("/warm", async (c) => {
-    const tailscale = c.env.TAILSCALE.getByName("singleton");
-    await tailscale.warm();
-    return c.json({ message: "Warmed up" });
 });
 
 export default {
