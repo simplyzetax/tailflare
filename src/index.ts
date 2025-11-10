@@ -33,6 +33,12 @@ app.get("/proxy", async (c) => {
     return response;
 });
 
+app.get("/peers", async (c) => {
+    const tailscale = c.env.TAILSCALE.getByName("singleton");
+    const peers = await tailscale.getPeers();
+    return c.json(peers);
+});
+
 app.get("/ready", async (c) => {
     const tailscale = c.env.TAILSCALE.getByName("singleton");
     const ready = await tailscale.isReady;

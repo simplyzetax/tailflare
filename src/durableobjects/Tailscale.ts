@@ -133,6 +133,12 @@ export class Tailscale extends DurableObject<Env> {
         return jsResponse;
     }
 
+    async getPeers(): Promise<IPNNetMapPeerNode[]> {
+        await this.initialize();
+        await this.waitUntilReady();
+        return this.ipn?.getPeers() ?? [];
+    }
+
     async destroy(): Promise<void> {
         this.ipn?.logout();
         this.ipn = null;
