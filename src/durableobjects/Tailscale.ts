@@ -19,24 +19,27 @@ export class Tailscale extends DurableObject<Env> {
                 await new Promise((resolve) => setTimeout(resolve, 10));
             }
             durableObjectLogger.info("Tailscale initialized with state:", { state: this.currentState });
+            this.ctx.storage.kv.put("peers", JSON.stringify(this.getPeers()));
         });
+    }
+
+    private storage = {
+        getState: (key: string): string => {
+            const v = this.ctx.storage.kv.get(key);
+            return (typeof v === "string" && HEX_RE.test(v)) ? v : "";
+        },
+        setState: (key: string, value: string): void => {
+            if (HEX_RE.test(value)) {
+                this.ctx.storage.kv.put(key, value);
+            }
+        },
     }
 
     private async initialize() {
         if (this.currentState !== "NoState") return;
 
         this.ipn = await createIPN({
-            stateStorage: {
-                getState: (key: string): string => {
-                    const v = this.ctx.storage.kv.get(key);
-                    return (typeof v === "string" && HEX_RE.test(v)) ? v : "";
-                },
-                setState: (key: string, value: string): void => {
-                    if (HEX_RE.test(value)) {
-                        this.ctx.storage.kv.put(key, value);
-                    }
-                },
-            },
+            stateStorage: this.storage,
             panicHandler: (msg) => durableObjectLogger.error("TS panic:", { msg }),
         });
 
@@ -45,7 +48,7 @@ export class Tailscale extends DurableObject<Env> {
                 this.currentState = state;
                 durableObjectLogger.info("TS state:", { state });
             },
-            notifyNetMap: (nmJSON: string) => {
+            notifyNetMap: (_nmJSON: string) => {
                 /*durableObjectLogger.info("TS netmap:", { nmJSON });*/
             },
             notifyBrowseToURL: (url: string) => {
@@ -70,20 +73,36 @@ export class Tailscale extends DurableObject<Env> {
 
     async proxy(request: Request): Promise<Response | undefined> {
 
-        if (this.currentState === "NeedsLogin") {
-            return errors.tailscale.notAuthenticated.toResponse();
+        const peers = this.getPeers();
+        const peer = peers.find((p) => p.name.startsWith(new URL(request.url).hostname + '.'));
+        if (!peer) {
+            return errors.tailscale.peerNotFound.toResponse();
+        }
+
+        const requests = this.ctx.storage.kv.get<number>("requests");
+        this.ctx.storage.kv.put("requests", (requests ?? 0) + 1);
+
+        switch (this.currentState) {
+            case "NeedsLogin":
+                return errors.tailscale.notAuthenticated.toResponse();
+            case "Running":
+                break;
+            default:
+                return errors.tailscale.networkUnavailable.withMessage(`Tailscale is not initialized, its curent state is: ${this.currentState}`).toResponse();
         }
 
         const res = await this.ipn?.fetch(request);
-        if (!res) {
-            return errors.tailscale.proxyFailed.toResponse();
+        if (!res?.ok) {
+            return errors.tailscale.proxyFailed.withMessage(`Failed to proxy request, got status: ${res?.status}`).toResponse();
         }
 
         return new Response(res.body, res);
     }
 
-    async getPeers(): Promise<IPNNetMapPeerNode[]> {
-        return this.ipn?.getPeers() ?? [];
+    getPeers(): IPNNetMapPeerNode[] {
+        const peers = this.ipn?.getPeers() ?? [];
+        this.ctx.storage.kv.put("peers", JSON.stringify(peers));
+        return peers;
     }
 
     async destroy(): Promise<void> {

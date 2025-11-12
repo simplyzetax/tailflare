@@ -113,6 +113,8 @@ export const errors = {
         upstreamError: new ApiError('errors.tailflare.proxy.upstreamError', 'Upstream service error', 2007, 502),
     },
     tailscale: {
+        peerNotFound: new ApiError('errors.tailflare.tailscale.peerNotFound', 'Peer not found', 3000, 404),
+        notInitialized: new ApiError('errors.tailflare.tailscale.notInitialized', 'Tailscale not initialized', 3000, 500),
         proxyFailed: new ApiError('errors.tailflare.tailscale.proxyFailed', 'Failed to proxy request', 3000, 500),
         notAuthenticated: new ApiError('errors.tailflare.tailscale.notAuthenticated', 'Not authenticated with Tailscale', 3001, 401),
         invalidNode: new ApiError('errors.tailflare.tailscale.invalidNode', 'Invalid Tailscale node', 3002, 400),
