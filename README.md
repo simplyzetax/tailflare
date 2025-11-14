@@ -60,10 +60,10 @@ pnpm run deploy
 
 ### 1. Authenticate with Tailscale
 
-Visit your Worker's `/login` endpoint and follow the authentication flow:
+Visit your Worker's `/api/v1/login` endpoint and follow the authentication flow:
 
 ```bash
-curl https://your-worker.your-subdomain.workers.dev/login
+curl https://your-worker.your-subdomain.workers.dev/api/v1/login
 # Redirects to Tailscale login page
 ```
 
@@ -73,10 +73,10 @@ Send HTTP requests to any device in your Tailnet:
 
 ```bash
 # Proxy to internal service
-curl "https://your-worker.your-subdomain.workers.dev/proxy?url=http://finns-macbook-air.taild2803.ts.net:8080/api/status"
+curl "https://your-worker.your-subdomain.workers.dev/api/v1/proxy?url=http://finns-macbook-air.taild2803.ts.net:8080/api/status"
 
 # Proxy with path
-curl "https://your-worker.your-subdomain.workers.dev/proxy?url=http://finns-macbook-air.taild2803.ts.net:3000/metrics"
+curl "https://your-worker.your-subdomain.workers.dev/api/v1/proxy?url=http://finns-macbook-air.taild2803.ts.net:3000/metrics"
 ```
 
 ---

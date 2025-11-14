@@ -135,7 +135,7 @@ app.get("/scalar", async (c) => {
     return c.html(htmlContent);
 });
 
-app.all("/api/v1/tailscale/proxy", async (c) => {
+app.all("/api/v1/proxy", async (c) => {
     const tailscale = c.env.TAILSCALE.getByName(c.get("country"), {
         locationHint: c.get("locationHint"),
     });
