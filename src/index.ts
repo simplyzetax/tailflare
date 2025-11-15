@@ -123,14 +123,6 @@ app.all("/api/v1/tailscale/proxy", async (c) => {
     return response;
 });
 
-// Legacy routes
-app.get("/peers", async (c) => {
-    const tailscale = c.env.TAILSCALE.getByName("singleton");
-    const peers = await tailscale.getPeers();
-    return c.json(peers);
-});
-
-// Exports
 export default {
     fetch: app.fetch
 } satisfies ExportedHandler<Env>;

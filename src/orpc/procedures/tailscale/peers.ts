@@ -1,4 +1,4 @@
-import { base } from "../base";
+import { base } from "../../base";
 
 export const peers = base
     .route({ method: "GET", path: "/peers" })

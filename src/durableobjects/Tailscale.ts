@@ -23,23 +23,21 @@ export class Tailscale extends DurableObject<Env> {
         });
     }
 
-    private storage = {
-        getState: (key: string): string => {
-            const v = this.ctx.storage.kv.get(key);
-            return (typeof v === "string" && HEX_RE.test(v)) ? v : "";
-        },
-        setState: (key: string, value: string): void => {
-            if (HEX_RE.test(value)) {
-                this.ctx.storage.kv.put(key, value);
-            }
-        },
-    }
-
     private async initialize() {
         if (this.currentState !== "NoState") return;
 
         this.ipn = await createIPN({
-            stateStorage: this.storage,
+            stateStorage: {
+                getState: (key: string): string => {
+                    const v = this.ctx.storage.kv.get(key);
+                    return (typeof v === "string" && HEX_RE.test(v)) ? v : "";
+                },
+                setState: (key: string, value: string): void => {
+                    if (HEX_RE.test(value)) {
+                        this.ctx.storage.kv.put(key, value);
+                    }
+                },
+            },
             panicHandler: (msg) => durableObjectLogger.error("TS panic:", { msg }),
         });
 
@@ -53,7 +51,6 @@ export class Tailscale extends DurableObject<Env> {
             },
             notifyBrowseToURL: (url: string) => {
                 this.loginURL = url;
-                this.ctx.storage.kv.put("loginURL", url);
             },
             notifyPanicRecover: (err: string) => {
                 durableObjectLogger.info("TS panic recovered:", { err });
