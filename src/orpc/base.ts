@@ -1,3 +1,3 @@
 import { os } from "@orpc/server";
 
-export const base = os.$context<({ Bindings: Env })>();
+export const base = os.$context<({ Bindings: Env, locationHint: DurableObjectLocationHint, country: string })>();

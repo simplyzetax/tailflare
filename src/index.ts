@@ -1,4 +1,3 @@
-// External dependencies
 import { Hono } from "hono";
 import { html } from "hono/html";
 import { OpenAPIHandler } from '@orpc/openapi/fetch';
@@ -7,20 +6,18 @@ import { CORSPlugin } from '@orpc/server/plugins';
 import { onError } from '@orpc/server';
 import { ZodToJsonSchemaConverter } from '@orpc/zod';
 
-// Local imports
 import { Tailscale } from "./durableobjects/Tailscale";
 import { router } from "./orpc/router";
 import { errors } from "./utils/errors";
 import { tryCatch } from "./utils/try";
+import { getLocationHint } from "./utils/location";
 
-// Initialize OpenAPI generator
 const openAPIGenerator = new OpenAPIGenerator({
     schemaConverters: [
         new ZodToJsonSchemaConverter(),
     ],
 });
 
-// Initialize OpenAPI handler
 const handler = new OpenAPIHandler(router, {
     plugins: [new CORSPlugin()],
     interceptors: [
@@ -30,15 +27,51 @@ const handler = new OpenAPIHandler(router, {
     ],
 });
 
-// Initialize Hono app
-const app = new Hono<{ Bindings: Env }>();
+const app = new Hono<{ Bindings: Env, Variables: { continent: ContinentCode, country: Iso3166Alpha2Code, locationHint: DurableObjectLocationHint } }>()
+    .use(async (c, next) => {
+        const Authorization = c.req.header("Authorization");
+        if (!Authorization) {
+            return errors.badRequest.withMessage("Missing authorization header").toResponse();
+        }
 
-// Middleware
+        const token = Authorization.split(" ")[1];
+        if (!token) {
+            return errors.badRequest.withMessage("Invalid authorization token").toResponse();
+        }
+
+        if (token !== c.env.AUTH_SECRET) {
+            return errors.badRequest.withMessage("Invalid authorization token").toResponse();
+        }
+
+        await next();
+    })
+    .use('*', async (c, next) => {
+        if (!c.req.raw.cf) {
+            return errors.internalServerError.toResponse();
+        }
+
+        const continent = c.req.raw.cf.continent as ContinentCode;
+        const country = c.req.raw.cf.country as Iso3166Alpha2Code;
+        if (!continent || !country) {
+            return errors.internalServerError.toResponse();
+        }
+
+        c.set("continent", continent);
+        c.set("country", country);
+        c.set("locationHint", getLocationHint(continent));
+        await next();
+    });
+
 app.use('*', async (c, next) => {
+    const locationHint = c.get("locationHint");
+    const country = c.get("country");
+
     const { response, matched } = await handler.handle(c.req.raw, {
         prefix: "/api/v1",
         context: {
-            Bindings: c.env
+            Bindings: c.env,
+            locationHint,
+            country,
         }
     });
     if (!matched) await next();
@@ -47,14 +80,13 @@ app.use('*', async (c, next) => {
 
 app.onError((err, c) => {
     console.error(err);
-    return c.json({ error: "Internal server error", message: err.message }, 500);
+    return errors.internalServerError.withMessage(err.message).toResponse();
 });
 
 app.notFound((c) => {
-    return c.json({ error: "Not found" }, 404);
+    return errors.notFound.toResponse();
 });
 
-// Documentation routes
 app.get("/openapi.json", async (c) => {
     const url = new URL(c.req.url);
     url.pathname = "/api/v1";
@@ -103,12 +135,13 @@ app.get("/scalar", async (c) => {
     return c.html(htmlContent);
 });
 
-// API routes
-app.all("/api/v1/tailscale/proxy", async (c) => {
-    const tailscale = c.env.TAILSCALE.getByName("singleton");
+app.all("/api/v1/proxy", async (c) => {
+    const tailscale = c.env.TAILSCALE.getByName(c.get("country"), {
+        locationHint: c.get("locationHint"),
+    });
 
     const url = c.req.query("url");
-    if (!url) return c.json({ error: "Missing url parameter" }, 400);
+    if (!url) return errors.badRequest.withMessage("Missing url parameter").toResponse();
 
     const cleanURL = await tryCatch(async () => new URL(url));
     if (!cleanURL) return errors.badRequest.withMessage("Invalid url parameter").toResponse();

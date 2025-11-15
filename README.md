@@ -1,9 +1,3 @@
-> [!WARNING] > **Security Notice:** This project does not implement authentication or authorization.
-> All Tailscale endpoints (`/login`, `/proxy`, `/ready`, etc.) are publicly accessible without
-> any authentication. Anyone with access to your Worker URL can authenticate with your
-> Tailscale account and proxy requests to devices in your Tailnet.
-> **Do not deploy this in production without adding proper authentication.**
-
 <img src="https://i.imgur.com/EjG5URU.png" alt="Tailflare Logo" width="256" height="128" style="vertical-align: middle; margin-right: 16px;">
 
 Seamlessly connect Cloudflare Workers to your private Tailscale network. Run a persistent Tailscale node inside a Durable Object to securely proxy traffic from the edge directly to your Tailnet devices.
@@ -66,10 +60,10 @@ pnpm run deploy
 
 ### 1. Authenticate with Tailscale
 
-Visit your Worker's `/login` endpoint and follow the authentication flow:
+Visit your Worker's `/api/v1/login` endpoint and follow the authentication flow:
 
 ```bash
-curl https://your-worker.your-subdomain.workers.dev/login
+curl https://your-worker.your-subdomain.workers.dev/api/v1/login
 # Redirects to Tailscale login page
 ```
 
@@ -79,10 +73,10 @@ Send HTTP requests to any device in your Tailnet:
 
 ```bash
 # Proxy to internal service
-curl "https://your-worker.your-subdomain.workers.dev/proxy?url=http://finns-macbook-air.taild2803.ts.net:8080/api/status"
+curl "https://your-worker.your-subdomain.workers.dev/api/v1/proxy?url=http://finns-macbook-air.taild2803.ts.net:8080/api/status"
 
 # Proxy with path
-curl "https://your-worker.your-subdomain.workers.dev/proxy?url=http://finns-macbook-air.taild2803.ts.net:3000/metrics"
+curl "https://your-worker.your-subdomain.workers.dev/api/v1/proxy?url=http://finns-macbook-air.taild2803.ts.net:3000/metrics"
 ```
 
 ---

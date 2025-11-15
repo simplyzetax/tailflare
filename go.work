@@ -2,5 +2,4 @@ go 1.25.4
 
 use (
 	./vendor/tailscale
-	./vendor/tailscale/cmd/tsconnect/wasm
 )
