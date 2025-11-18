@@ -8,6 +8,8 @@ const HEX_RE = /^[0-9a-fA-F]*$/;
 export class Tailscale extends DurableObject<Env> {
     private ipn: IPN | null = null;
     private loginURL: string | null = null;
+    private loginURLPromise: Promise<string> | null = null;
+    private loginURLResolver: ((url: string) => void) | null = null;
     private currentState: IPNState = "NoState";
 
     // Initializing the Tailscale runtime in the constructor is EXPERIMENTAL and may be removed in the future.
@@ -50,6 +52,11 @@ export class Tailscale extends DurableObject<Env> {
             },
             notifyBrowseToURL: (url: string) => {
                 this.loginURL = url;
+                if (this.loginURLResolver) {
+                    this.loginURLResolver(url);
+                    this.loginURLResolver = null;
+                    this.loginURLPromise = null;
+                }
             },
             notifyPanicRecover: (err: string) => {
                 durableObjectLogger.info("TS panic recovered:", { err });
@@ -58,13 +65,18 @@ export class Tailscale extends DurableObject<Env> {
     }
 
     async login(): Promise<string> {
-        this.ipn?.login();
-
-        while (!this.loginURL) {
-            await new Promise((resolve) => setTimeout(resolve, 100));
+        if (this.loginURL) {
+            return this.loginURL;
         }
 
-        return this.loginURL;
+        if (!this.loginURLPromise) {
+            this.loginURLPromise = new Promise<string>((resolve) => {
+                this.loginURLResolver = resolve;
+            });
+        }
+
+        this.ipn?.login();
+        return this.loginURLPromise;
     }
 
     async proxy(request: Request): Promise<Response | undefined> {
@@ -104,6 +116,8 @@ export class Tailscale extends DurableObject<Env> {
         this.ipn?.logout();
         this.ipn = null;
         this.loginURL = null;
+        this.loginURLPromise = null;
+        this.loginURLResolver = null;
         this.currentState = "NoState";
         await this.ctx.storage.deleteAll();
         const keys = this.ctx.storage.kv.list();
