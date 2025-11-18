@@ -19,7 +19,6 @@ export class Tailscale extends DurableObject<Env> {
                 await new Promise((resolve) => setTimeout(resolve, 10));
             }
             durableObjectLogger.info("Tailscale initialized with state:", { state: this.currentState });
-            this.ctx.storage.kv.put("peers", JSON.stringify(this.getPeers()));
         });
     }
 
@@ -98,7 +97,6 @@ export class Tailscale extends DurableObject<Env> {
 
     getPeers(): IPNNetMapPeerNode[] {
         const peers = this.ipn?.getPeers() ?? [];
-        this.ctx.storage.kv.put("peers", JSON.stringify(peers));
         return peers;
     }
 
