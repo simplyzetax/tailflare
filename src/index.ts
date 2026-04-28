@@ -29,6 +29,7 @@ export type AppContext = {
     Bindings: Env;
     Variables: { country: Iso3166Alpha2Code };
 };
+
 const app = new Hono<AppContext>()
     .use('*', async (c, next) => {
         if (!c.req.raw.cf) {

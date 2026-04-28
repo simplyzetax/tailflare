@@ -61,6 +61,9 @@ export class Tailscale extends DurableObject<Env> {
             notifyPanicRecover: (err: string) => {
                 durableObjectLogger.info("TS panic recovered:", { err });
             },
+            notifyPacket: (packet: IPNPacket) => {
+                durableObjectLogger.info("TS packet:", this.describePacketSource(packet));
+            },
         });
     }
 
@@ -112,6 +115,43 @@ export class Tailscale extends DurableObject<Env> {
         return peers;
     }
 
+    getSelf(): TailscaleSelf {
+        const self = this.ipn?.getSelf();
+        const name = self?.name ?? null;
+
+        return {
+            name,
+            magicDNSName: name,
+            host: name?.split(".")[0] ?? null,
+            addresses: self?.addresses ?? [],
+            ipv4: self?.addresses.find((address) => !address.includes(":")) ?? null,
+            ipv6: self?.addresses.find((address) => address.includes(":")) ?? null,
+            machineKey: self?.machineKey ?? null,
+            nodeKey: self?.nodeKey ?? null,
+            machineStatus: self?.machineStatus ?? null,
+        };
+    }
+
+    private describePacketSource(packet: IPNPacket): IPNPacket & {
+        sourceIP: string | null;
+        sourcePeerName: string | null;
+        sourceHost: string | null;
+        sourcePeerAddresses: string[];
+    } {
+        const sourceIP = parseAddrPortIP(packet.src);
+        const sourcePeer = sourceIP
+            ? this.getPeers().find((peer) => peer.addresses.includes(sourceIP))
+            : undefined;
+
+        return {
+            ...packet,
+            sourceIP,
+            sourcePeerName: sourcePeer?.name ?? null,
+            sourceHost: sourcePeer?.name.split(".")[0] ?? null,
+            sourcePeerAddresses: sourcePeer?.addresses ?? [],
+        };
+    }
+
     async destroy(): Promise<void> {
         this.ipn?.logout();
         this.ipn = null;
@@ -128,4 +168,14 @@ export class Tailscale extends DurableObject<Env> {
         durableObjectLogger.info("TS destroyed");
     }
 
+}
+
+function parseAddrPortIP(addrPort: string): string | null {
+    if (addrPort.startsWith("[")) {
+        const end = addrPort.indexOf("]");
+        return end === -1 ? null : addrPort.slice(1, end);
+    }
+
+    const portSeparator = addrPort.lastIndexOf(":");
+    return portSeparator === -1 ? addrPort : addrPort.slice(0, portSeparator);
 }
