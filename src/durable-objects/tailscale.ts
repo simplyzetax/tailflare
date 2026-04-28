@@ -2,6 +2,7 @@ import { DurableObject } from 'cloudflare:workers';
 import { createIPN } from '../wasm/ipn';
 import { durableObjectLogger } from '../utils/logger';
 import { errors } from '../utils/errors';
+import * as jose from 'jose';
 
 const HEX_RE = /^[0-9a-fA-F]*$/;
 
@@ -11,10 +12,12 @@ export class Tailscale extends DurableObject<Env> {
 	private loginURLPromise: Promise<string> | null = null;
 	private loginURLResolver: ((url: string) => void) | null = null;
 	private currentState: IPNState = 'NoState';
+	private readonly bindings: Env;
 
 	// Initializing the Tailscale runtime in the constructor is EXPERIMENTAL and may be removed in the future.
 	constructor(state: DurableObjectState, env: Env) {
 		super(state, env);
+		this.bindings = env;
 		this.ctx.blockConcurrencyWhile(async () => {
 			await this.initialize();
 			while (this.currentState !== 'Running' && this.currentState !== 'NeedsLogin') {
@@ -67,11 +70,18 @@ export class Tailscale extends DurableObject<Env> {
 			},
 		});
 
-		this.ipn.route('/123456', async (request) => {
+		this.ipn.route('/api/v1/notouchlogin', async (request) => {
 			durableObjectLogger.info('TS route request:', request);
-			return new Response(crypto.randomUUID(), {
+			const sourcePeer = this.getPeerByAddress(request.sourceIP);
+			if (!sourcePeer) {
+				return errors.tailscale.peerNotFound.toResponse();
+			}
+
+			const token = await this.createToken(sourcePeer);
+			return new Response(token, {
 				headers: {
-					'content-type': 'text/plain; charset=utf-8',
+					'Access-Control-Allow-Origin': '*',
+					'Content-Type': 'text/plain; charset=utf-8',
 				},
 			});
 		});
@@ -126,6 +136,10 @@ export class Tailscale extends DurableObject<Env> {
 		return peers;
 	}
 
+	getPeerByAddress(address: string): IPNNetMapPeerNode | undefined {
+		return this.getPeers().find((peer) => peer.addresses.includes(address));
+	}
+
 	getSelf(): TailscaleSelf {
 		const self = this.ipn?.getSelf();
 		const name = self?.name ?? null;
@@ -141,6 +155,29 @@ export class Tailscale extends DurableObject<Env> {
 			nodeKey: self?.nodeKey ?? null,
 			machineStatus: self?.machineStatus ?? null,
 		};
+	}
+
+	async createToken(node: IPNNetMapNode): Promise<string> {
+		const secret = this.bindings.AUTH_SECRET;
+		if (!secret) {
+			throw new Error('AUTH_SECRET is not configured');
+		}
+		const signingKey = new TextEncoder().encode(secret);
+		if (signingKey.byteLength < 32) {
+			throw new Error('AUTH_SECRET must be at least 32 bytes');
+		}
+
+		return new jose.SignJWT({
+			name: node.name,
+			addresses: node.addresses,
+			machineKey: node.machineKey,
+			nodeKey: node.nodeKey,
+		})
+			.setProtectedHeader({ alg: 'HS256' })
+			.setSubject(node.name)
+			.setIssuedAt()
+			.setExpirationTime('3h')
+			.sign(signingKey);
 	}
 
 	async destroy(): Promise<void> {

@@ -8,6 +8,8 @@ import { Tailscale } from './durable-objects/tailscale';
 import { router } from './orpc/router';
 import { errors } from './utils/errors';
 import { tryCatch } from './utils/try';
+import { setCookie } from 'hono/cookie';
+import * as jose from 'jose';
 
 const handler = new OpenAPIHandler(router, {
 	plugins: [new CORSPlugin()],
@@ -94,9 +96,96 @@ app.get('/scalar', async (c) => {
 	return c.html(htmlContent);
 });
 
-app.all('/api/v1/notouchlogin', async (c) => {
+app.get('/api/v1/notouchlogin', async (c) => {
 	const tailscale = c.env.TAILSCALE.getByName(c.get('country'));
-	//const token = await tailscale.createToken();
+
+	const self = await tailscale.getSelf();
+	const magicDNSName = self.magicDNSName;
+	if (!magicDNSName) return errors.tailscale.selfNotFound.toResponse();
+
+	const tailnetLoginURL = `http://${magicDNSName}/api/v1/notouchlogin`;
+
+	return c.html(html`
+		<!doctype html>
+		<html>
+			<head>
+				<title>Tailflare</title>
+				<meta charset="utf-8" />
+				<meta name="viewport" content="width=device-width, initial-scale=1" />
+			</head>
+			<body>
+				<main data-token-url="${tailnetLoginURL}">
+					<p id="status">Signing you in with Tailscale...</p>
+				</main>
+				<script>
+					(async () => {
+						const status = document.getElementById('status');
+						const tokenUrl = document.querySelector('main').dataset.tokenUrl;
+
+						try {
+							const response = await fetch(tokenUrl);
+							if (!response.ok) {
+								throw new Error('Tailnet login failed with status ' + response.status);
+							}
+
+							const callbackUrl = new URL('/api/v1/notouchlogin/callback', window.location.href);
+							callbackUrl.searchParams.set('token', await response.text());
+							window.location.assign(callbackUrl.toString());
+						} catch (error) {
+							status.textContent = error instanceof Error ? error.message : 'Tailnet login failed';
+						}
+					})();
+				</script>
+			</body>
+		</html>
+	`);
+});
+
+app.get('/api/v1/notouchlogin/callback', async (c) => {
+	const token = c.req.query('token');
+	if (!token) return errors.badRequest.withMessage('Missing token parameter').toResponse();
+
+	const signingKey = new TextEncoder().encode(c.env.AUTH_SECRET);
+	if (signingKey.byteLength < 32) {
+		return errors.internalServerError.withMessage('AUTH_SECRET must be at least 32 bytes').toResponse();
+	}
+
+	const result = await tryCatch(async () => jose.jwtVerify(token, signingKey));
+	if (!result) return errors.unauthorized.withMessage('Invalid token').toResponse();
+	const { payload } = result;
+	const name = typeof payload.name === 'string' ? payload.name : payload.sub;
+	const addresses = Array.isArray(payload.addresses) ? payload.addresses.filter((address) => typeof address === 'string') : [];
+	const expiresAt = typeof payload.exp === 'number' ? new Date(payload.exp * 1000).toLocaleString() : null;
+
+	setCookie(c, 'tailflare_token', token, {
+		httpOnly: true,
+		maxAge: 60 * 60 * 3,
+		path: '/',
+		sameSite: 'Lax',
+		secure: c.env.NODE_ENV !== 'development',
+	});
+
+	return c.html(html`
+		<!doctype html>
+		<html>
+			<head>
+				<title>Tailflare</title>
+				<meta charset="utf-8" />
+				<meta name="viewport" content="width=device-width, initial-scale=1" />
+			</head>
+			<body>
+				<h1>Signed in with Tailscale</h1>
+				<dl>
+					<dt>Name</dt>
+					<dd>${name ?? 'Unknown'}</dd>
+					<dt>Addresses</dt>
+					<dd>${addresses.length > 0 ? addresses.join(', ') : 'Unknown'}</dd>
+					<dt>Token expires</dt>
+					<dd>${expiresAt ?? 'Unknown'}</dd>
+				</dl>
+			</body>
+		</html>
+	`);
 });
 
 app.all('/api/v1/proxy', async (c) => {
