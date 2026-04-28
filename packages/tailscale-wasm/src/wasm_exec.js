@@ -2,9 +2,16 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-'use strict';
+// Side-effect-only module: defines `globalThis.Go` (the Go WASM bridge).
 
-import { wasmLogger } from '../utils/logger';
+export {};
+
+const wasmLogger = {
+	debug: (...args) => console.debug('[WASM]', ...args),
+	info: (...args) => console.log('[WASM]', ...args),
+	warn: (...args) => console.warn('[WASM]', ...args),
+	error: (...args) => console.error('[WASM]', ...args),
+};
 
 (() => {
 	const enosys = () => {

@@ -1,0 +1,20 @@
+{
+	"name": "@tailflare/tailscale-wasm",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"main": "./src/index.ts",
+	"types": "./src/index.ts",
+	"exports": {
+		".": "./src/index.ts",
+		"./types": "./src/wasm_js.d.ts"
+	},
+	"files": [
+		"src"
+	],
+	"scripts": {
+		"wasm:build": "bash scripts/build-wasm.sh",
+		"build": "bash scripts/build-wasm.sh",
+		"typecheck": "tsc --noEmit"
+	}
+}

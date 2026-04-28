@@ -1,6 +1,6 @@
 import { useState } from 'react';
 
-import type { MeResponse } from '../../auth/me';
+import type { MeResponse } from '@tailflare/worker/auth/me';
 
 type IdentityPassProps = {
 	data: MeResponse;

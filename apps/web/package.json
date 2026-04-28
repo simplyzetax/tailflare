@@ -1,0 +1,32 @@
+{
+	"name": "@tailflare/web",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"dev": "vite dev",
+		"build": "vite build",
+		"preview": "vite preview",
+		"typecheck": "tsc --noEmit"
+	},
+	"dependencies": {
+		"@orpc/client": "^1.14.0",
+		"@orpc/server": "^1.14.0",
+		"@orpc/tanstack-query": "^1.14.0",
+		"@tailflare/worker": "workspace:*",
+		"@tanstack/react-query": "^5.100.5",
+		"@tanstack/react-router": "^1.168.25",
+		"@tanstack/react-router-devtools": "^1.166.13",
+		"react": "^19.2.5",
+		"react-dom": "^19.2.5"
+	},
+	"devDependencies": {
+		"@tailwindcss/vite": "^4.2.4",
+		"@tanstack/router-plugin": "^1.167.28",
+		"@types/react": "^19.2.14",
+		"@types/react-dom": "^19.2.3",
+		"@vitejs/plugin-react": "^6.0.1",
+		"tailwindcss": "^4.2.4",
+		"vite": "^8.0.10"
+	}
+}

@@ -1,0 +1,12 @@
+{
+	"extends": "../../tsconfig.base.json",
+	"compilerOptions": {
+		"lib": ["es2022"],
+		"types": ["./worker-configuration.d.ts", "vitest"]
+	},
+	"include": [
+		"src/**/*",
+		"worker-configuration.d.ts",
+		"../../packages/tailscale-wasm/src/wasm_js.d.ts"
+	]
+}

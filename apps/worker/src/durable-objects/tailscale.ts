@@ -1,5 +1,5 @@
 import { DurableObject } from 'cloudflare:workers';
-import { createIPN } from '../wasm/ipn';
+import { createIPN } from '@tailflare/tailscale-wasm';
 import { durableObjectLogger } from '../utils/logger';
 import { errors } from '../utils/errors';
 import * as jose from 'jose';

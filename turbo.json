@@ -1,0 +1,32 @@
+{
+	"$schema": "https://turborepo.com/schema.json",
+	"ui": "tui",
+	"tasks": {
+		"dev": {
+			"cache": false,
+			"persistent": true
+		},
+		"build": {
+			"dependsOn": ["^build"],
+			"outputs": ["dist/**", ".wrangler/**", "src/tailscale.wasm"]
+		},
+		"deploy": {
+			"dependsOn": ["build"],
+			"cache": false
+		},
+		"typecheck": {
+			"dependsOn": []
+		},
+		"test": {
+			"dependsOn": ["^build"]
+		},
+		"wasm:build": {
+			"inputs": [
+				"../../vendor/tailscale/**/*.go",
+				"scripts/**",
+				"package.json"
+			],
+			"outputs": ["src/tailscale.wasm"]
+		}
+	}
+}

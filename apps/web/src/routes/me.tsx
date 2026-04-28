@@ -1,8 +1,13 @@
 import { useQuery } from '@tanstack/react-query';
+import { createFileRoute } from '@tanstack/react-router';
 
-import { IdentityPass } from './components/identity-pass';
-import { ErrorState, LoadingState, SignedOutState } from './components/states';
-import { orpc } from './orpc';
+import { IdentityPass } from '../components/identity-pass';
+import { ErrorState, LoadingState, SignedOutState } from '../components/states';
+import { orpc } from '../orpc';
+
+export const Route = createFileRoute('/me')({
+	component: MePage,
+});
 
 function isUnauthorizedError(error: unknown): boolean {
 	return (
@@ -15,7 +20,7 @@ function isUnauthorizedError(error: unknown): boolean {
 	);
 }
 
-export function App() {
+function MePage() {
 	const { data, isPending, error } = useQuery(orpc.me.queryOptions());
 
 	if (isPending) return <LoadingState />;

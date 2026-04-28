@@ -10,12 +10,15 @@ lerna-debug.log*
 
 .claude
 .superpowers
+.turbo/
 
 # Diagnostic reports (https://nodejs.org/api/report.html)
 
 report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 
-src/wasm/tailscale.wasm
+packages/tailscale-wasm/src/tailscale.wasm
+# TanStack Router generated tree
+apps/web/src/routeTree.gen.ts
 
 # Runtime data
 
