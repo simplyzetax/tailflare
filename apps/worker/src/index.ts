@@ -124,6 +124,10 @@ app.get('/scalar', async (c) => {
 app.get('/api/v1/notouchlogin', async (c) => {
 	const tailscale = c.env.TAILSCALE.getByName(c.get('country'));
 
+	if (await tailscale.needsLogin()) {
+		return c.redirect(await tailscale.login(), 303);
+	}
+
 	const self = await tailscale.getSelf();
 	const magicDNSName = self.magicDNSName;
 	if (!magicDNSName) return errors.tailscale.selfNotFound.toResponse();

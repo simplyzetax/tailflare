@@ -6,6 +6,7 @@
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
+		"deploy": "bunx wrangler deploy",
 		"preview": "vite preview",
 		"typecheck": "tsc --noEmit"
 	},

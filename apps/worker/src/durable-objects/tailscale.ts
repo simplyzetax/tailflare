@@ -103,6 +103,10 @@ export class Tailscale extends DurableObject<Env> {
 		return loginURLPromise;
 	}
 
+	needsLogin(): boolean {
+		return this.currentState === 'NeedsLogin';
+	}
+
 	async proxy(request: Request): Promise<Response | undefined> {
 		const peers = this.getPeers();
 		const peer = peers.find((p) => p.name.startsWith(new URL(request.url).hostname + '.'));
@@ -143,12 +147,11 @@ export class Tailscale extends DurableObject<Env> {
 
 	getSelf(): TailscaleSelf {
 		const self = this.ipn?.getSelf();
-		const name = self?.name ?? null;
 
 		return {
-			name,
-			magicDNSName: name,
-			host: name?.split('.')[0] ?? null,
+			name: self?.name ?? null,
+			magicDNSName: self?.name ?? null,
+			host: self?.name?.split('.')[0] ?? null,
 			addresses: self?.addresses ?? [],
 			ipv4: self?.addresses.find((address) => !address.includes(':')) ?? null,
 			ipv6: self?.addresses.find((address) => address.includes(':')) ?? null,

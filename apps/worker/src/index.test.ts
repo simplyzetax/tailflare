@@ -248,6 +248,16 @@ describe('worker fetch handler', () => {
 		expect(body).toContain('data-token-url="http://tailflare.tailnet.ts.net/api/v1/notouchlogin"');
 	});
 
+	it('redirects no-touch login to the Tailscale login URL when the Durable Object needs login', async () => {
+		useNextIPN({ state: 'NeedsLogin' });
+
+		const response = await dispatch(createRequest('/api/v1/notouchlogin'));
+
+		expect(response.status).toBe(303);
+		expect(response.headers.get('Location')).toBe('https://login.tailscale.com/a/test');
+		expect(createdIPNs[0]?.login).toHaveBeenCalledOnce();
+	});
+
 	it('rejects no-touch login when the self node has no MagicDNS name', async () => {
 		useNextIPN({ self: null });
 		const response = await dispatch(createRequest('/api/v1/notouchlogin'));
