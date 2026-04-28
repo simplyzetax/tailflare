@@ -1,21 +1,13 @@
 import { Hono } from "hono";
 import { html } from "hono/html";
 import { OpenAPIHandler } from '@orpc/openapi/fetch';
-import { OpenAPIGenerator } from "@orpc/openapi";
 import { CORSPlugin } from '@orpc/server/plugins';
 import { onError } from '@orpc/server';
-import { ZodToJsonSchemaConverter } from '@orpc/zod';
 
 import { Tailscale } from "./durable-objects/tailscale";
 import { router } from "./orpc/router";
 import { errors } from "./utils/errors";
 import { tryCatch } from "./utils/try";
-
-const openAPIGenerator = new OpenAPIGenerator({
-    schemaConverters: [
-        new ZodToJsonSchemaConverter(),
-    ],
-});
 
 const handler = new OpenAPIHandler(router, {
     plugins: [new CORSPlugin()],
@@ -27,6 +19,7 @@ const handler = new OpenAPIHandler(router, {
 });
 export type AppContext = {
     Bindings: Env;
+    Request: Request;
     Variables: { country: Iso3166Alpha2Code };
 };
 
@@ -49,8 +42,11 @@ app.use('*', async (c, next) => {
     const { response, matched } = await handler.handle(c.req.raw, {
         prefix: "/api/v1",
         context: {
-            Bindings: c.env,
-            Variables: c.var,
+            base: {
+                Bindings: c.env,
+                Request: c.req.raw,
+                Variables: c.var,
+            },
         }
     });
     if (!matched) await next();
@@ -64,21 +60,6 @@ app.onError((err, c) => {
 
 app.notFound((c) => {
     return errors.notFound.toResponse();
-});
-
-app.get("/openapi.json", async (c) => {
-    const url = new URL(c.req.url);
-    url.pathname = "/api/v1";
-    const specFromRouter = await openAPIGenerator.generate(router, {
-        info: {
-            title: 'Tailflare',
-            version: '0.0.0',
-        },
-        servers: [
-            { url: url.toString() },
-        ],
-    });
-    return c.json(specFromRouter);
 });
 
 app.get("/scalar", async (c) => {
@@ -97,7 +78,7 @@ app.get("/scalar", async (c) => {
         <script src="https://cdn.jsdelivr.net/npm/@scalar/api-reference"></script>
         <script>
           Scalar.createApiReference('#app', {
-            url: '/openapi.json',
+            url: '/api/v1/openapi.json',
             authentication: {
               securitySchemes: {
                 bearerAuth: {
