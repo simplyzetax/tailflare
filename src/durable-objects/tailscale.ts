@@ -1,181 +1,161 @@
-import { DurableObject } from "cloudflare:workers";
-import { createIPN } from "../wasm/ipn";
-import { durableObjectLogger } from "../utils/logger";
-import { errors } from "../utils/errors";
+import { DurableObject } from 'cloudflare:workers';
+import { createIPN } from '../wasm/ipn';
+import { durableObjectLogger } from '../utils/logger';
+import { errors } from '../utils/errors';
 
 const HEX_RE = /^[0-9a-fA-F]*$/;
 
 export class Tailscale extends DurableObject<Env> {
-    private ipn: IPN | null = null;
-    private loginURL: string | null = null;
-    private loginURLPromise: Promise<string> | null = null;
-    private loginURLResolver: ((url: string) => void) | null = null;
-    private currentState: IPNState = "NoState";
+	private ipn: IPN | null = null;
+	private loginURL: string | null = null;
+	private loginURLPromise: Promise<string> | null = null;
+	private loginURLResolver: ((url: string) => void) | null = null;
+	private currentState: IPNState = 'NoState';
 
-    // Initializing the Tailscale runtime in the constructor is EXPERIMENTAL and may be removed in the future.
-    constructor(state: DurableObjectState, env: Env) {
-        super(state, env);
-        this.ctx.blockConcurrencyWhile(async () => {
-            await this.initialize()
-            while (this.currentState !== "Running" && this.currentState !== "NeedsLogin") {
-                await new Promise((resolve) => setTimeout(resolve, 10));
-            }
-            durableObjectLogger.info("Tailscale initialized with state:", { state: this.currentState });
-        });
-    }
+	// Initializing the Tailscale runtime in the constructor is EXPERIMENTAL and may be removed in the future.
+	constructor(state: DurableObjectState, env: Env) {
+		super(state, env);
+		this.ctx.blockConcurrencyWhile(async () => {
+			await this.initialize();
+			while (this.currentState !== 'Running' && this.currentState !== 'NeedsLogin') {
+				await new Promise((resolve) => setTimeout(resolve, 10));
+			}
+			durableObjectLogger.info('Tailscale initialized with state:', { state: this.currentState });
+		});
+	}
 
-    private async initialize() {
-        if (this.currentState !== "NoState") return;
+	private async initialize() {
+		if (this.currentState !== 'NoState') return;
 
-        this.ipn = await createIPN({
-            stateStorage: {
-                getState: (key: string): string => {
-                    const v = this.ctx.storage.kv.get(key);
-                    return (typeof v === "string" && HEX_RE.test(v)) ? v : "";
-                },
-                setState: (key: string, value: string): void => {
-                    if (HEX_RE.test(value)) {
-                        this.ctx.storage.kv.put(key, value);
-                    }
-                },
-            },
-            panicHandler: (msg) => durableObjectLogger.error("TS panic:", { msg }),
-        });
+		this.ipn = await createIPN({
+			stateStorage: {
+				getState: (key: string): string => {
+					const v = this.ctx.storage.kv.get(key);
+					return typeof v === 'string' && HEX_RE.test(v) ? v : '';
+				},
+				setState: (key: string, value: string): void => {
+					if (HEX_RE.test(value)) {
+						this.ctx.storage.kv.put(key, value);
+					}
+				},
+			},
+			panicHandler: (msg) => durableObjectLogger.error('TS panic:', { msg }),
+		});
 
-        this.ipn.run({
-            notifyState: (state: IPNState) => {
-                this.currentState = state;
-                durableObjectLogger.info("TS state:", { state });
-            },
-            notifyNetMap: (_nmJSON: string) => {
-                /*durableObjectLogger.info("TS netmap:", { nmJSON });*/
-            },
-            notifyBrowseToURL: (url: string) => {
-                this.loginURL = url;
-                if (this.loginURLResolver) {
-                    this.loginURLResolver(url);
-                    this.loginURLResolver = null;
-                    this.loginURLPromise = null;
-                }
-            },
-            notifyPanicRecover: (err: string) => {
-                durableObjectLogger.info("TS panic recovered:", { err });
-            },
-            notifyPacket: (packet: IPNPacket) => {
-                durableObjectLogger.info("TS packet:", this.describePacketSource(packet));
-            },
-        });
-    }
+		this.ipn.run({
+			notifyState: (state: IPNState) => {
+				this.currentState = state;
+				durableObjectLogger.info('TS state:', { state });
+			},
+			notifyNetMap: (_nmJSON: string) => {
+				/*durableObjectLogger.info("TS netmap:", { nmJSON });*/
+			},
+			notifyBrowseToURL: (url: string) => {
+				this.loginURL = url;
+				if (this.loginURLResolver) {
+					this.loginURLResolver(url);
+					this.loginURLResolver = null;
+					this.loginURLPromise = null;
+				}
+			},
+			notifyPanicRecover: (err: string) => {
+				durableObjectLogger.info('TS panic recovered:', { err });
+			},
+			notifyPacket: (packet: IPNPacket) => {
+				// noop
+				durableObjectLogger.info('TS packet:', { packet: JSON.stringify(packet) });
+			},
+		});
 
-    async login(): Promise<string> {
-        if (this.loginURL) {
-            return this.loginURL;
-        }
+		this.ipn.route('/123456', async (request) => {
+			durableObjectLogger.info('TS route request:', request);
+			return new Response(crypto.randomUUID(), {
+				headers: {
+					'content-type': 'text/plain; charset=utf-8',
+				},
+			});
+		});
+	}
 
-        if (!this.loginURLPromise) {
-            this.loginURLPromise = new Promise<string>((resolve) => {
-                this.loginURLResolver = resolve;
-            });
-        }
+	async login(): Promise<string> {
+		if (this.loginURL) {
+			return this.loginURL;
+		}
 
-        this.ipn?.login();
-        return this.loginURLPromise;
-    }
+		if (!this.loginURLPromise) {
+			this.loginURLPromise = new Promise<string>((resolve) => {
+				this.loginURLResolver = resolve;
+			});
+		}
 
-    async proxy(request: Request): Promise<Response | undefined> {
+		this.ipn?.login();
+		return this.loginURLPromise;
+	}
 
-        const peers = this.getPeers();
-        const peer = peers.find((p) => p.name.startsWith(new URL(request.url).hostname + '.'));
-        if (!peer) {
-            return errors.tailscale.peerNotFound.toResponse();
-        }
+	async proxy(request: Request): Promise<Response | undefined> {
+		const peers = this.getPeers();
+		const peer = peers.find((p) => p.name.startsWith(new URL(request.url).hostname + '.'));
+		if (!peer) {
+			return errors.tailscale.peerNotFound.toResponse();
+		}
 
-        const requests = this.ctx.storage.kv.get<number>("requests");
-        this.ctx.storage.kv.put("requests", (requests ?? 0) + 1);
+		const requests = this.ctx.storage.kv.get<number>('requests');
+		this.ctx.storage.kv.put('requests', (requests ?? 0) + 1);
 
-        switch (this.currentState) {
-            case "NeedsLogin":
-                return errors.tailscale.notAuthenticated.toResponse();
-            case "Running":
-                break;
-            default:
-                return errors.tailscale.networkUnavailable.withMessage(`Tailscale is not initialized, its curent state is: ${this.currentState}`).toResponse();
-        }
+		switch (this.currentState) {
+			case 'NeedsLogin':
+				return errors.tailscale.notAuthenticated.toResponse();
+			case 'Running':
+				break;
+			default:
+				return errors.tailscale.networkUnavailable
+					.withMessage(`Tailscale is not initialized, its curent state is: ${this.currentState}`)
+					.toResponse();
+		}
 
-        const res = await this.ipn?.fetch(request);
-        if (!res?.ok) {
-            return errors.tailscale.proxyFailed.withMessage(`Failed to proxy request, got status: ${res?.status}`).toResponse();
-        }
+		const res = await this.ipn?.fetch(request);
+		if (!res?.ok) {
+			return errors.tailscale.proxyFailed.withMessage(`Failed to proxy request, got status: ${res?.status}`).toResponse();
+		}
 
-        return new Response(res.body, res);
-    }
+		return new Response(res.body, res);
+	}
 
-    getPeers(): IPNNetMapPeerNode[] {
-        const peers = this.ipn?.getPeers() ?? [];
-        return peers;
-    }
+	getPeers(): IPNNetMapPeerNode[] {
+		const peers = this.ipn?.getPeers() ?? [];
+		return peers;
+	}
 
-    getSelf(): TailscaleSelf {
-        const self = this.ipn?.getSelf();
-        const name = self?.name ?? null;
+	getSelf(): TailscaleSelf {
+		const self = this.ipn?.getSelf();
+		const name = self?.name ?? null;
 
-        return {
-            name,
-            magicDNSName: name,
-            host: name?.split(".")[0] ?? null,
-            addresses: self?.addresses ?? [],
-            ipv4: self?.addresses.find((address) => !address.includes(":")) ?? null,
-            ipv6: self?.addresses.find((address) => address.includes(":")) ?? null,
-            machineKey: self?.machineKey ?? null,
-            nodeKey: self?.nodeKey ?? null,
-            machineStatus: self?.machineStatus ?? null,
-        };
-    }
+		return {
+			name,
+			magicDNSName: name,
+			host: name?.split('.')[0] ?? null,
+			addresses: self?.addresses ?? [],
+			ipv4: self?.addresses.find((address) => !address.includes(':')) ?? null,
+			ipv6: self?.addresses.find((address) => address.includes(':')) ?? null,
+			machineKey: self?.machineKey ?? null,
+			nodeKey: self?.nodeKey ?? null,
+			machineStatus: self?.machineStatus ?? null,
+		};
+	}
 
-    private describePacketSource(packet: IPNPacket): IPNPacket & {
-        sourceIP: string | null;
-        sourcePeerName: string | null;
-        sourceHost: string | null;
-        sourcePeerAddresses: string[];
-    } {
-        const sourceIP = parseAddrPortIP(packet.src);
-        const sourcePeer = sourceIP
-            ? this.getPeers().find((peer) => peer.addresses.includes(sourceIP))
-            : undefined;
+	async destroy(): Promise<void> {
+		this.ipn?.logout();
+		this.ipn = null;
+		this.loginURL = null;
+		this.loginURLPromise = null;
+		this.loginURLResolver = null;
+		this.currentState = 'NoState';
+		await this.ctx.storage.deleteAll();
+		const keys = this.ctx.storage.kv.list();
+		for (const [key] of keys) {
+			this.ctx.storage.kv.delete(key);
+		}
 
-        return {
-            ...packet,
-            sourceIP,
-            sourcePeerName: sourcePeer?.name ?? null,
-            sourceHost: sourcePeer?.name.split(".")[0] ?? null,
-            sourcePeerAddresses: sourcePeer?.addresses ?? [],
-        };
-    }
-
-    async destroy(): Promise<void> {
-        this.ipn?.logout();
-        this.ipn = null;
-        this.loginURL = null;
-        this.loginURLPromise = null;
-        this.loginURLResolver = null;
-        this.currentState = "NoState";
-        await this.ctx.storage.deleteAll();
-        const keys = this.ctx.storage.kv.list();
-        for (const [key] of keys) {
-            this.ctx.storage.kv.delete(key);
-        }
-
-        durableObjectLogger.info("TS destroyed");
-    }
-
-}
-
-function parseAddrPortIP(addrPort: string): string | null {
-    if (addrPort.startsWith("[")) {
-        const end = addrPort.indexOf("]");
-        return end === -1 ? null : addrPort.slice(1, end);
-    }
-
-    const portSeparator = addrPort.lastIndexOf(":");
-    return portSeparator === -1 ? addrPort : addrPort.slice(0, portSeparator);
+		durableObjectLogger.info('TS destroyed');
+	}
 }
