@@ -98,8 +98,9 @@ export class Tailscale extends DurableObject<Env> {
 			});
 		}
 
+		const loginURLPromise = this.loginURLPromise;
 		this.ipn?.login();
-		return this.loginURLPromise;
+		return loginURLPromise;
 	}
 
 	async proxy(request: Request): Promise<Response | undefined> {

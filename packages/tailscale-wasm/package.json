@@ -15,6 +15,10 @@
 	"scripts": {
 		"wasm:build": "bash scripts/build-wasm.sh",
 		"build": "bash scripts/build-wasm.sh",
+		"test": "vitest run",
 		"typecheck": "tsc --noEmit"
+	},
+	"devDependencies": {
+		"vitest": "^4.1.5"
 	}
 }
