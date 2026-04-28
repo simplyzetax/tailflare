@@ -1,0 +1,87 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap");
+@import "tailwindcss";
+
+@theme {
+	--color-paper: #f5efe2;
+	--color-paper-warm: #fff9ed;
+	--color-paper-deep: #ece1c8;
+	--color-card: #f0e6d2;
+	--color-card-edge: #d6c7ad;
+	--color-ink: #2c2418;
+	--color-ink-soft: #4a3a25;
+	--color-ink-mute: #6f604b;
+	--color-rule: #c9b890;
+	--color-rule-soft: #ddcfaf;
+	--color-brass: #8a6f43;
+	--color-brass-bright: #c8a96a;
+	--color-seal-red: #8b2e1f;
+	--color-seal-green: #2f5d3a;
+	--color-seal-blue: #1f3a5d;
+
+	--font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+	--font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+:root {
+	color: var(--color-ink);
+	background: var(--color-paper);
+	font-family: var(--font-sans);
+	-webkit-font-smoothing: antialiased;
+	-moz-osx-font-smoothing: grayscale;
+}
+
+body {
+	margin: 0;
+	min-width: 320px;
+	min-height: 100vh;
+	background-color: var(--color-paper);
+}
+
+@keyframes reveal {
+	from { opacity: 0; transform: translateY(12px); }
+	to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes radar {
+	0% { transform: scale(0.9); opacity: 0.7; }
+	100% { transform: scale(2.4); opacity: 0; }
+}
+
+@keyframes hologram-shift {
+	0%, 100% { background-position: 0% 0%; }
+	50% { background-position: 100% 100%; }
+}
+
+@keyframes led-pulse {
+	0%, 100% { opacity: 1; filter: brightness(1); }
+	50% { opacity: 0.85; filter: brightness(1.25); }
+}
+
+@keyframes flip-lift-a {
+	0% { transform: translateZ(0); }
+	50% { transform: translateZ(40px); }
+	100% { transform: translateZ(0); }
+}
+
+@keyframes flip-lift-b {
+	0% { transform: translateZ(0); }
+	50% { transform: translateZ(40px); }
+	100% { transform: translateZ(0); }
+}
+
+@keyframes sheen-sweep {
+	0% { opacity: 0; transform: translateX(-40%) skewX(-22deg); }
+	20% { opacity: 0.65; }
+	80% { opacity: 0.65; }
+	100% { opacity: 0; transform: translateX(140%) skewX(-22deg); }
+}
+
+@keyframes shadow-spread-a {
+	0%, 100% { transform: translateX(-50%) scale(1, 1); opacity: 0.6; filter: blur(10px); }
+	50% { transform: translateX(-50%) scale(1.18, 0.6); opacity: 0.32; filter: blur(18px); }
+}
+
+@keyframes shadow-spread-b {
+	0%, 100% { transform: translateX(-50%) scale(1, 1); opacity: 0.6; filter: blur(10px); }
+	50% { transform: translateX(-50%) scale(1.18, 0.6); opacity: 0.32; filter: blur(18px); }
+}

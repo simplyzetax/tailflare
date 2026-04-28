@@ -2,25 +2,41 @@
     "name": "tailflare",
     "version": "0.0.0",
     "private": true,
+    "type": "module",
     "scripts": {
         "wasm:build": "cd vendor/tailscale/cmd/tsconnect && cross-env GOOS=js GOARCH=wasm go build -o ../../../../src/wasm/tailscale.wasm ./wasm",
-        "deploy": "wrangler deploy",
-        "dev": "wrangler dev",
-        "start": "wrangler dev",
+        "dev": "vite dev",
+        "build": "vite build",
+        "deploy": "vite build && wrangler deploy",
+        "start": "vite dev",
+        "test": "vitest run",
+        "typecheck": "tsc --noEmit",
         "cf-typegen": "wrangler types"
     },
     "devDependencies": {
+        "@cloudflare/vite-plugin": "^1.33.2",
+        "@tailwindcss/vite": "^4.2.4",
+        "@types/react": "^19.2.14",
+        "@types/react-dom": "^19.2.3",
+        "@vitejs/plugin-react": "^6.0.1",
         "cross-env": "^10.1.0",
+        "tailwindcss": "^4.2.4",
         "typescript": "^5.5.2",
+        "vite": "^8.0.10",
+        "vitest": "^4.1.5",
         "wrangler": "^4.85.0"
     },
     "dependencies": {
         "@orpc/client": "^1.11.2",
         "@orpc/openapi": "^1.11.2",
         "@orpc/server": "^1.11.2",
+        "@orpc/tanstack-query": "^1.14.0",
         "@orpc/zod": "^1.11.2",
+        "@tanstack/react-query": "^5.100.5",
         "hono": "^4.10.4",
         "jose": "^6.2.3",
+        "react": "^19.2.5",
+        "react-dom": "^19.2.5",
         "zod": "^4.1.12"
     }
 }

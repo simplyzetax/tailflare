@@ -5,7 +5,9 @@
         "target": "es2021",
         /* Specify a set of bundled library declaration files that describe the target runtime environment. */
         "lib": [
-            "es2021"
+            "es2021",
+            "DOM",
+            "DOM.Iterable"
         ],
         /* Specify what JSX code is generated. */
         "jsx": "react-jsx",
@@ -32,7 +34,20 @@
         /* Skip type checking all .d.ts files. */
         "skipLibCheck": true,
         "types": [
-            "./worker-configuration.d.ts"
+            "./worker-configuration.d.ts",
+            "vite/client",
+            "vitest"
         ]
-    }
+    },
+    "include": [
+        "src/**/*",
+        "vite.config.ts",
+        "worker-configuration.d.ts",
+        "vendor/tailscale/cmd/tsconnect/src/types/**/*.d.ts"
+    ],
+    "exclude": [
+        "dist",
+        "node_modules",
+        "vendor/tailscale/client"
+    ]
 }

@@ -1,4 +1,3 @@
-import "./wasm_exec.js";
 import wasmBinary from "./tailscale.wasm";
 
 export async function createIPN(config: {
@@ -7,6 +6,7 @@ export async function createIPN(config: {
     controlURL?: string;
     authKey?: string;
 }) {
+    await import("./wasm_exec.js");
     // @ts-ignore
     const go = new Go();
     const instance = await WebAssembly.instantiate(wasmBinary, go.importObject);

@@ -1,12 +1,12 @@
 <img src="https://i.imgur.com/EjG5URU.png" alt="Tailflare Logo" width="256" height="128" style="vertical-align: middle; margin-right: 16px;">
 
-Seamlessly connect Cloudflare Workers to your private Tailscale network. Run a persistent Tailscale node inside a Durable Object to securely proxy traffic from the edge directly to your Tailnet devices.
+Seamlessly connect Cloudflare Workers to your private Tailscale network. Run a persistent Tailscale node inside a Durable Object to securely proxy traffic from the edge to your Tailnet devices, or restrict an entire Worker to users who can prove they are on your tailnet.
 
 ---
 
 ## What is Tailflare?
 
-Tailflare embeds a full Tailscale node (via WASM) within a Cloudflare Durable Object, giving Workers secure, low-latency access to your private network resources. It maintains a stable node identity, handles interactive authentication, and provides a simple HTTP proxy interface.
+Tailflare embeds a full Tailscale node (via WASM) within a Cloudflare Durable Object, giving Workers secure, low-latency access to your private network resources. It maintains a stable node identity, handles interactive authentication, provides a simple HTTP proxy interface, and can issue Worker login tokens only to devices reachable through your tailnet.
 
 ```text
 ┌─────────────┐      ┌────────────────────┐      ┌────────────────┐      ┌──────────────┐
@@ -19,6 +19,7 @@ Tailflare embeds a full Tailscale node (via WASM) within a Cloudflare Durable Ob
 
 ## Features
 
+- **Tailnet-Gated Worker Access**: Require users to prove tailnet membership before accessing protected Worker routes
 - **Persistent Identity**: Machine keys and node state survive Durable Object restarts
 - **Interactive Login**: Browser-based authentication flow via Worker endpoints
 - **HTTP Proxy**: Simple `/proxy?url=http://target:port` interface
@@ -48,10 +49,10 @@ pnpm wasm:build
 
 ```bash
 # Development
-pnpm run dev
+bun run dev
 
 # Production
-pnpm run deploy
+bun run deploy
 ```
 
 ---
@@ -79,6 +80,25 @@ curl "https://your-worker.your-subdomain.workers.dev/api/v1/proxy?url=http://fin
 curl "https://your-worker.your-subdomain.workers.dev/api/v1/proxy?url=http://finns-macbook-air.taild2803.ts.net:3000/metrics"
 ```
 
+### 3. Gate Worker Access With Your Tailnet
+
+Tailflare can also protect Worker routes by requiring a browser to fetch a short-lived token from the Durable Object's MagicDNS name over Tailscale. Only devices that can reach your tailnet can complete the login.
+
+```bash
+# Start the tailnet-backed login flow
+open https://your-worker.your-subdomain.workers.dev/api/v1/notouchlogin
+```
+
+The page asks the browser to fetch:
+
+```text
+http://<tailflare-magic-dns-name>/api/v1/notouchlogin
+```
+
+That request only succeeds from inside your tailnet. The Durable Object identifies the source Tailscale peer, signs a JWT for that device, and the Worker callback stores it in an HTTP-only cookie before redirecting to `/me`.
+
+The `/me` page is a Vite + React SPA route styled with Tailwind CSS. It uses a typed oRPC client against the `/rpc` transport to load the current user from the `me` procedure, including verified JWT claims and live Tailflare/Tailscale context.
+
 ---
 
 ## How It Works
@@ -91,14 +111,19 @@ curl "https://your-worker.your-subdomain.workers.dev/api/v1/proxy?url=http://fin
 
 4. **Proxy Gateway**: HTTP requests are forwarded through the Tailscale interface, enabling Workers to reach private IPs, hostnames, and services.
 
+5. **Tailnet Proof for Worker Login**: The Durable Object listens on its own Tailscale IP, serves a token endpoint over MagicDNS, and signs a short-lived JWT only after resolving the request's source IP to a known Tailscale peer.
+
 ---
 
 ## Development
 
 | Command           | Action                 |
 | ----------------- | ---------------------- |
-| `pnpm run dev`    | Start local dev server |
-| `pnpm run deploy` | Deploy to production   |
+| `bun run dev`     | Start Vite + Cloudflare dev server |
+| `bun run build`   | Build Worker and React SPA |
+| `bun run test`    | Run Vitest tests |
+| `bun run typecheck` | Run TypeScript checks |
+| `bun run deploy`  | Build and deploy to production |
 
 ---
 

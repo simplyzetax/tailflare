@@ -3,6 +3,7 @@ import { ZodToJsonSchemaConverter } from '@orpc/zod';
 
 import { base } from './base';
 import { health } from './procedures/health';
+import { me } from './procedures/me';
 import { login } from './procedures/tailscale/login';
 import { peers } from './procedures/tailscale/peers';
 import { destroy } from './procedures/tailscale/destroy';
@@ -14,6 +15,7 @@ const openAPIGenerator = new OpenAPIGenerator({
 
 const apiRouter = {
 	health,
+	me,
 	tailscale: {
 		peers,
 		self,

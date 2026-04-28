@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { html } from 'hono/html';
 import { OpenAPIHandler } from '@orpc/openapi/fetch';
+import { RPCHandler } from '@orpc/server/fetch';
 import { CORSPlugin } from '@orpc/server/plugins';
 import { onError } from '@orpc/server';
 
@@ -12,6 +13,14 @@ import { setCookie } from 'hono/cookie';
 import * as jose from 'jose';
 
 const handler = new OpenAPIHandler(router, {
+	plugins: [new CORSPlugin()],
+	interceptors: [
+		onError((error) => {
+			console.error(error);
+		}),
+	],
+});
+const rpcHandler = new RPCHandler(router, {
 	plugins: [new CORSPlugin()],
 	interceptors: [
 		onError((error) => {
@@ -39,6 +48,22 @@ const app = new Hono<AppContext>().use('*', async (c, next) => {
 	await next();
 });
 
+app.use('/rpc/*', async (c, next) => {
+	const { response, matched } = await rpcHandler.handle(c.req.raw, {
+		prefix: '/rpc',
+		context: {
+			base: {
+				Bindings: c.env,
+				Request: c.req.raw,
+				Variables: c.var,
+			},
+		},
+	});
+
+	if (matched) return response;
+	await next();
+});
+
 app.use('*', async (c, next) => {
 	const { response, matched } = await handler.handle(c.req.raw, {
 		prefix: '/api/v1',
@@ -50,8 +75,8 @@ app.use('*', async (c, next) => {
 			},
 		},
 	});
-	if (!matched) await next();
-	return response;
+	if (matched) return response;
+	await next();
 });
 
 app.onError((err, c) => {
@@ -152,10 +177,6 @@ app.get('/api/v1/notouchlogin/callback', async (c) => {
 
 	const result = await tryCatch(async () => jose.jwtVerify(token, signingKey));
 	if (!result) return errors.unauthorized.withMessage('Invalid token').toResponse();
-	const { payload } = result;
-	const name = typeof payload.name === 'string' ? payload.name : payload.sub;
-	const addresses = Array.isArray(payload.addresses) ? payload.addresses.filter((address) => typeof address === 'string') : [];
-	const expiresAt = typeof payload.exp === 'number' ? new Date(payload.exp * 1000).toLocaleString() : null;
 
 	setCookie(c, 'tailflare_token', token, {
 		httpOnly: true,
@@ -165,27 +186,7 @@ app.get('/api/v1/notouchlogin/callback', async (c) => {
 		secure: c.env.NODE_ENV !== 'development',
 	});
 
-	return c.html(html`
-		<!doctype html>
-		<html>
-			<head>
-				<title>Tailflare</title>
-				<meta charset="utf-8" />
-				<meta name="viewport" content="width=device-width, initial-scale=1" />
-			</head>
-			<body>
-				<h1>Signed in with Tailscale</h1>
-				<dl>
-					<dt>Name</dt>
-					<dd>${name ?? 'Unknown'}</dd>
-					<dt>Addresses</dt>
-					<dd>${addresses.length > 0 ? addresses.join(', ') : 'Unknown'}</dd>
-					<dt>Token expires</dt>
-					<dd>${expiresAt ?? 'Unknown'}</dd>
-				</dl>
-			</body>
-		</html>
-	`);
+	return c.redirect('/me', 303);
 });
 
 app.all('/api/v1/proxy', async (c) => {
