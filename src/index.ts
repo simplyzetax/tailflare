@@ -6,11 +6,10 @@ import { CORSPlugin } from '@orpc/server/plugins';
 import { onError } from '@orpc/server';
 import { ZodToJsonSchemaConverter } from '@orpc/zod';
 
-import { Tailscale } from "./durableobjects/Tailscale";
+import { Tailscale } from "./durable-objects/tailscale";
 import { router } from "./orpc/router";
 import { errors } from "./utils/errors";
 import { tryCatch } from "./utils/try";
-import { getLocationHint } from "./utils/location";
 
 const openAPIGenerator = new OpenAPIGenerator({
     schemaConverters: [
@@ -26,52 +25,31 @@ const handler = new OpenAPIHandler(router, {
         }),
     ],
 });
-
-const app = new Hono<{ Bindings: Env, Variables: { continent: ContinentCode, country: Iso3166Alpha2Code, locationHint: DurableObjectLocationHint } }>()
-    .use(async (c, next) => {
-        const Authorization = c.req.header("Authorization");
-        if (!Authorization) {
-            return errors.badRequest.withMessage("Missing authorization header").toResponse();
-        }
-
-        const token = Authorization.split(" ")[1];
-        if (!token) {
-            return errors.badRequest.withMessage("Invalid authorization token").toResponse();
-        }
-
-        if (token !== c.env.AUTH_SECRET) {
-            return errors.badRequest.withMessage("Invalid authorization token").toResponse();
-        }
-
-        await next();
-    })
+export type AppContext = {
+    Bindings: Env;
+    Variables: { country: Iso3166Alpha2Code };
+};
+const app = new Hono<AppContext>()
     .use('*', async (c, next) => {
         if (!c.req.raw.cf) {
             return errors.internalServerError.toResponse();
         }
 
-        const continent = c.req.raw.cf.continent as ContinentCode;
         const country = c.req.raw.cf.country as Iso3166Alpha2Code;
-        if (!continent || !country) {
+        if (!country) {
             return errors.internalServerError.toResponse();
         }
 
-        c.set("continent", continent);
         c.set("country", country);
-        c.set("locationHint", getLocationHint(continent));
         await next();
     });
 
 app.use('*', async (c, next) => {
-    const locationHint = c.get("locationHint");
-    const country = c.get("country");
-
     const { response, matched } = await handler.handle(c.req.raw, {
         prefix: "/api/v1",
         context: {
             Bindings: c.env,
-            locationHint,
-            country,
+            Variables: c.var,
         }
     });
     if (!matched) await next();
@@ -136,9 +114,7 @@ app.get("/scalar", async (c) => {
 });
 
 app.all("/api/v1/proxy", async (c) => {
-    const tailscale = c.env.TAILSCALE.getByName(c.get("country"), {
-        locationHint: c.get("locationHint"),
-    });
+    const tailscale = c.env.TAILSCALE.getByName(c.get("country"));
 
     const url = c.req.query("url");
     if (!url) return errors.badRequest.withMessage("Missing url parameter").toResponse();
@@ -152,8 +128,7 @@ app.all("/api/v1/proxy", async (c) => {
         body: c.req.raw.body,
     });
 
-    const response = await tailscale.proxy(request);
-    return response;
+    return await tailscale.proxy(request);
 });
 
 export default {

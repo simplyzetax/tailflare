@@ -1,3 +1,4 @@
 import { os } from "@orpc/server";
+import { AppContext } from "../index";
 
-export const base = os.$context<({ Bindings: Env, locationHint: DurableObjectLocationHint, country: string })>();
+export const base = os.$context<AppContext>();
