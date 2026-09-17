@@ -1,4 +1,4 @@
-<img src="https://i.imgur.com/EjG5URU.png" alt="Tailflare Logo" width="256" height="128" style="vertical-align: middle; margin-right: 16px;">
+<img src="https://i.imgur.com/EjG5URU.png" alt="Tailflare Logo" width="512" height="165" style="vertical-align: middle; margin-right: 16px;">
 
 Seamlessly connect Cloudflare Workers to your private Tailscale network. Run a persistent Tailscale node inside a Durable Object to securely proxy traffic from the edge to your Tailnet devices, or restrict an entire Worker to users who can prove they are on your tailnet.
 
