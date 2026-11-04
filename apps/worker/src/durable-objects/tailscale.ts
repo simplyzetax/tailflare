@@ -2,7 +2,19 @@ import { DurableObject } from 'cloudflare:workers';
 import { createIPN } from '@tailflare/tailscale-wasm';
 import { durableObjectLogger } from '../utils/logger';
 import { errors } from '../utils/errors';
-import * as jose from 'jose';
+import {
+	getSigningKey,
+	htmlPage,
+	LOGIN_CODE_TTL_MS,
+	NOTOUCH_PATH,
+	randomToken,
+	signSession,
+	verifyLoginState,
+} from '../auth/notouch';
+
+const LOGIN_CODE_PREFIX = 'notouch:code:';
+
+type StoredLoginCode = { token: string; nonce: string; expiresAt: number };
 
 const HEX_RE = /^[0-9a-fA-F]*$/;
 
@@ -70,21 +82,66 @@ export class Tailscale extends DurableObject<Env> {
 			},
 		});
 
-		this.ipn.route('/api/v1/notouchlogin', async (request) => {
-			durableObjectLogger.info('TS route request:', request);
-			const sourcePeer = this.getPeerByAddress(request.sourceIP);
-			if (!sourcePeer) {
-				return errors.tailscale.peerNotFound.toResponse();
-			}
+		this.ipn.route(NOTOUCH_PATH, (request) => this.handleNoTouchLogin(request));
+	}
 
-			const token = await this.createToken(sourcePeer);
-			return new Response(token, {
-				headers: {
-					'Access-Control-Allow-Origin': '*',
-					'Content-Type': 'text/plain; charset=utf-8',
-				},
-			});
+	/**
+	 * Served on this node's tailnet address only. Reaching it proves the browser is on the tailnet:
+	 * we identify the source peer, mint a single-use code bound to the login state, and bounce the
+	 * browser back to the Worker callback that started the flow.
+	 */
+	private async handleNoTouchLogin(request: IPNRouteRequest): Promise<Response> {
+		const key = getSigningKey(this.bindings.AUTH_SECRET);
+		const stateToken = new URL(request.url).searchParams.get('state');
+		const state = stateToken ? await verifyLoginState(stateToken, key) : null;
+		if (!stateToken || !state) {
+			return htmlPage('Login link expired', 'Start signing in again from the Tailflare site.', 400);
+		}
+
+		const sourcePeer = this.getPeerByAddress(request.sourceIP);
+		if (!sourcePeer) {
+			durableObjectLogger.info('No-touch login from unknown source', { sourceIP: request.sourceIP });
+			return htmlPage('Device not recognised', 'This request did not come from a known device on the tailnet.', 403);
+		}
+
+		const token = await this.createToken(sourcePeer);
+		const code = randomToken();
+		this.pruneLoginCodes();
+		this.ctx.storage.kv.put(`${LOGIN_CODE_PREFIX}${code}`, {
+			token,
+			nonce: state.nonce,
+			expiresAt: Date.now() + LOGIN_CODE_TTL_MS,
+		} satisfies StoredLoginCode);
+
+		const callback = new URL(state.callback);
+		callback.searchParams.set('code', code);
+		callback.searchParams.set('state', stateToken);
+
+		return new Response(null, {
+			status: 303,
+			headers: {
+				Location: callback.toString(),
+				'Cache-Control': 'no-store',
+				'Referrer-Policy': 'no-referrer',
+			},
 		});
+	}
+
+	/** Exchanges a single-use login code for a session token. Returns null if unknown, expired or not bound to this nonce. */
+	redeemLoginCode(code: string, nonce: string): string | null {
+		const key = `${LOGIN_CODE_PREFIX}${code}`;
+		const entry = this.ctx.storage.kv.get<StoredLoginCode>(key);
+		if (!entry) return null;
+		this.ctx.storage.kv.delete(key);
+		if (entry.expiresAt < Date.now() || entry.nonce !== nonce) return null;
+		return entry.token;
+	}
+
+	private pruneLoginCodes() {
+		const now = Date.now();
+		for (const [key, value] of this.ctx.storage.kv.list<StoredLoginCode>({ prefix: LOGIN_CODE_PREFIX })) {
+			if (value.expiresAt < now) this.ctx.storage.kv.delete(key);
+		}
 	}
 
 	async login(): Promise<string> {
@@ -162,26 +219,7 @@ export class Tailscale extends DurableObject<Env> {
 	}
 
 	async createToken(node: IPNNetMapNode): Promise<string> {
-		const secret = this.bindings.AUTH_SECRET;
-		if (!secret) {
-			throw new Error('AUTH_SECRET is not configured');
-		}
-		const signingKey = new TextEncoder().encode(secret);
-		if (signingKey.byteLength < 32) {
-			throw new Error('AUTH_SECRET must be at least 32 bytes');
-		}
-
-		return new jose.SignJWT({
-			name: node.name,
-			addresses: node.addresses,
-			machineKey: node.machineKey,
-			nodeKey: node.nodeKey,
-		})
-			.setProtectedHeader({ alg: 'HS256' })
-			.setSubject(node.name)
-			.setIssuedAt()
-			.setExpirationTime('3h')
-			.sign(signingKey);
+		return signSession(node, getSigningKey(this.bindings.AUTH_SECRET));
 	}
 
 	async destroy(): Promise<void> {

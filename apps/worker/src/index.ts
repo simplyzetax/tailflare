@@ -9,8 +9,23 @@ import { Tailscale } from './durable-objects/tailscale';
 import { router } from './orpc/router';
 import { errors } from './utils/errors';
 import { tryCatch } from './utils/try';
-import { setCookie } from 'hono/cookie';
-import * as jose from 'jose';
+import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
+import {
+	DEFAULT_REDIRECT,
+	getSigningKey,
+	LOGIN_STATE_COOKIE,
+	LOGIN_STATE_TTL_SECONDS,
+	NOTOUCH_CALLBACK_PATH,
+	NOTOUCH_PATH,
+	randomToken,
+	sanitizeRedirect,
+	SESSION_COOKIE,
+	SESSION_TTL_SECONDS,
+	signLoginState,
+	tailnetHost,
+	verifyLoginState,
+	verifySession,
+} from './auth/notouch';
 
 const handler = new OpenAPIHandler(router, {
 	plugins: [new CORSPlugin()],
@@ -121,76 +136,94 @@ app.get('/scalar', async (c) => {
 	return c.html(htmlContent);
 });
 
-app.get('/api/v1/notouchlogin', async (c) => {
-	const tailscale = c.env.TAILSCALE.getByName(c.get('country'));
+/**
+ * No-touch login. Fully redirect-based so it works from an HTTPS page (a script fetch to the
+ * plain-HTTP tailnet address would be blocked as mixed content):
+ *
+ *   Worker /notouchlogin ──303──▶ http://<tailflare tailnet IP>/api/v1/notouchlogin?state=…
+ *        (only reachable from the tailnet; the DO identifies the source peer)
+ *   ◀──303── Worker /notouchlogin/callback?code=…&state=…  ──303──▶ redirect target
+ *
+ * The session token never appears in a URL: the DO hands out a single-use code bound to a nonce
+ * that only lives in the initiating browser's cookie.
+ */
+app.get(NOTOUCH_PATH, async (c) => {
+	const redirect = sanitizeRedirect(c.req.query('redirect'));
+	const key = getSigningKey(c.env.AUTH_SECRET);
+
+	// Already signed in: skip the round trip.
+	if (await verifySession(getCookie(c, SESSION_COOKIE), key)) {
+		return c.redirect(redirect, 303);
+	}
+
+	const node = c.get('country');
+	const tailscale = c.env.TAILSCALE.getByName(node);
 
 	if (await tailscale.needsLogin()) {
 		return c.redirect(await tailscale.login(), 303);
 	}
 
-	const self = await tailscale.getSelf();
-	const magicDNSName = self.magicDNSName;
-	if (!magicDNSName) return errors.tailscale.selfNotFound.toResponse();
+	const host = tailnetHost(await tailscale.getSelf());
+	if (!host) return errors.tailscale.selfNotFound.toResponse();
 
-	const tailnetLoginURL = `http://${magicDNSName}/api/v1/notouchlogin`;
+	const nonce = randomToken();
+	const state = await signLoginState(
+		{
+			nonce,
+			callback: new URL(NOTOUCH_CALLBACK_PATH, c.req.url).toString(),
+			redirect,
+			node,
+		},
+		key,
+	);
 
-	return c.html(html`
-		<!doctype html>
-		<html>
-			<head>
-				<title>Tailflare</title>
-				<meta charset="utf-8" />
-				<meta name="viewport" content="width=device-width, initial-scale=1" />
-			</head>
-			<body>
-				<main data-token-url="${tailnetLoginURL}">
-					<p id="status">Signing you in with Tailscale...</p>
-				</main>
-				<script>
-					(async () => {
-						const status = document.getElementById('status');
-						const tokenUrl = document.querySelector('main').dataset.tokenUrl;
+	setCookie(c, LOGIN_STATE_COOKIE, nonce, {
+		httpOnly: true,
+		maxAge: LOGIN_STATE_TTL_SECONDS,
+		path: NOTOUCH_PATH,
+		sameSite: 'Lax',
+		secure: c.env.NODE_ENV !== 'development',
+	});
+	c.header('Cache-Control', 'no-store');
+	c.header('Referrer-Policy', 'no-referrer');
 
-						try {
-							const response = await fetch(tokenUrl);
-							if (!response.ok) {
-								throw new Error('Tailnet login failed with status ' + response.status);
-							}
-
-							const callbackUrl = new URL('/api/v1/notouchlogin/callback', window.location.href);
-							callbackUrl.searchParams.set('token', await response.text());
-							window.location.assign(callbackUrl.toString());
-						} catch (error) {
-							status.textContent = error instanceof Error ? error.message : 'Tailnet login failed';
-						}
-					})();
-				</script>
-			</body>
-		</html>
-	`);
+	const target = new URL(`http://${host.includes(':') ? `[${host}]` : host}${NOTOUCH_PATH}`);
+	target.searchParams.set('state', state);
+	return c.redirect(target.toString(), 303);
 });
 
-app.get('/api/v1/notouchlogin/callback', async (c) => {
-	const token = c.req.query('token');
-	if (!token) return errors.badRequest.withMessage('Missing token parameter').toResponse();
+app.get(NOTOUCH_CALLBACK_PATH, async (c) => {
+	const fail = (reason: string) => {
+		deleteCookie(c, LOGIN_STATE_COOKIE, { path: NOTOUCH_PATH });
+		return c.redirect(`${DEFAULT_REDIRECT}?login_error=${encodeURIComponent(reason)}`, 303);
+	};
 
-	const signingKey = new TextEncoder().encode(c.env.AUTH_SECRET);
-	if (signingKey.byteLength < 32) {
-		return errors.internalServerError.withMessage('AUTH_SECRET must be at least 32 bytes').toResponse();
-	}
+	const code = c.req.query('code');
+	const stateToken = c.req.query('state');
+	if (!code || !stateToken) return fail('missing_parameters');
 
-	const result = await tryCatch(async () => jose.jwtVerify(token, signingKey));
-	if (!result) return errors.unauthorized.withMessage('Invalid token').toResponse();
+	const key = getSigningKey(c.env.AUTH_SECRET);
+	const state = await verifyLoginState(stateToken, key);
+	if (!state) return fail('expired');
 
-	setCookie(c, 'tailflare_token', token, {
+	const nonce = getCookie(c, LOGIN_STATE_COOKIE);
+	if (!nonce || nonce !== state.nonce) return fail('state_mismatch');
+
+	const token = await c.env.TAILSCALE.getByName(state.node).redeemLoginCode(code, nonce);
+	if (!token || !(await verifySession(token, key))) return fail('invalid_code');
+
+	deleteCookie(c, LOGIN_STATE_COOKIE, { path: NOTOUCH_PATH });
+	setCookie(c, SESSION_COOKIE, token, {
 		httpOnly: true,
-		maxAge: 60 * 60 * 3,
+		maxAge: SESSION_TTL_SECONDS,
 		path: '/',
 		sameSite: 'Lax',
 		secure: c.env.NODE_ENV !== 'development',
 	});
+	c.header('Cache-Control', 'no-store');
+	c.header('Referrer-Policy', 'no-referrer');
 
-	return c.redirect('/me', 303);
+	return c.redirect(state.redirect, 303);
 });
 
 app.all('/api/v1/proxy', async (c) => {

@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import { useEffect } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
 
 import { IdentityPass } from '../components/identity-pass';
@@ -8,6 +9,25 @@ import { orpc } from '../orpc';
 export const Route = createFileRoute('/me')({
 	component: MePage,
 });
+
+const LOGIN_ERRORS: Record<string, string> = {
+	expired: 'The sign-in link expired. Please try again.',
+	state_mismatch: 'Sign-in was started in a different browser or tab. Please try again.',
+	invalid_code: 'The sign-in code was already used or has expired. Please try again.',
+	missing_parameters: 'The sign-in response was incomplete. Please try again.',
+};
+
+function readLoginError(): string | null {
+	const code = new URLSearchParams(window.location.search).get('login_error');
+	if (!code) return null;
+	return LOGIN_ERRORS[code] ?? 'Sign-in failed. Please try again.';
+}
+
+function noTouchLoginURL(): string {
+	const url = new URL('/api/v1/notouchlogin', window.location.origin);
+	url.searchParams.set('redirect', window.location.pathname);
+	return url.pathname + url.search;
+}
 
 function isUnauthorizedError(error: unknown): boolean {
 	return (
@@ -22,10 +42,18 @@ function isUnauthorizedError(error: unknown): boolean {
 
 function MePage() {
 	const { data, isPending, error } = useQuery(orpc.me.queryOptions());
+	const loginError = readLoginError();
+	const signedOut = !!error && isUnauthorizedError(error);
+	// No-touch: if we're not signed in and the last attempt didn't fail, sign in straight away.
+	const autoLogin = signedOut && !loginError;
 
-	if (isPending) return <LoadingState />;
+	useEffect(() => {
+		if (autoLogin) window.location.replace(noTouchLoginURL());
+	}, [autoLogin]);
+
+	if (isPending || autoLogin) return <LoadingState />;
 	if (error) {
-		if (isUnauthorizedError(error)) return <SignedOutState />;
+		if (signedOut) return <SignedOutState loginURL={noTouchLoginURL()} error={loginError} />;
 		return <ErrorState message={error instanceof Error ? error.message : 'Unable to load your Tailflare session'} />;
 	}
 

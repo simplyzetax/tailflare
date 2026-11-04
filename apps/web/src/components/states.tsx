@@ -29,7 +29,7 @@ export function LoadingState() {
 			<h1 className="mt-4 text-[1.875rem] font-semibold leading-tight tracking-tight text-ink">
 				Checking your card…
 			</h1>
-			<p className="mt-3 text-sm text-ink-mute">Loading your signed tailnet identity.</p>
+			<p className="mt-3 text-sm text-ink-mute">Confirming this device is on your tailnet.</p>
 
 			<div className="mt-6 flex items-center gap-3">
 				<span className="relative inline-flex h-2.5 w-2.5">
@@ -46,7 +46,7 @@ export function LoadingState() {
 	);
 }
 
-export function SignedOutState() {
+export function SignedOutState({ loginURL, error }: { loginURL: string; error?: string | null }) {
 	return (
 		<StateShell>
 			<Eyebrow>Tailflare · Access Required</Eyebrow>
@@ -56,9 +56,12 @@ export function SignedOutState() {
 			<p className="mt-4 text-sm text-ink-mute">
 				Prove you are on the tailnet, then Tailflare will issue a short-lived browser session and a tailnet identity card for this page.
 			</p>
+			{error && (
+				<p className="mt-4 rounded-[8px] border border-seal-red/30 bg-[#fff1ed] px-4 py-3 font-mono text-[12px] text-[#7a2e22]">{error}</p>
+			)}
 
 			<a
-				href="/api/v1/notouchlogin"
+				href={loginURL}
 				className="group mt-6 inline-flex items-center gap-3 rounded-[8px] bg-ink px-5 py-3 font-mono text-[11px] uppercase tracking-[0.24em] text-paper-warm transition-all hover:bg-ink-soft hover:gap-4"
 			>
 				<span>Sign in through Tailscale</span>
