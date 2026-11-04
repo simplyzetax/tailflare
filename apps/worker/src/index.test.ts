@@ -41,6 +41,7 @@ type FakeIPN = IPN & {
 	login: ReturnType<typeof vi.fn<() => void>>;
 	logout: ReturnType<typeof vi.fn<() => void>>;
 	route: ReturnType<typeof vi.fn<(path: string, handler: IPNRouteHandler) => void>>;
+	routes: Map<string, IPNRouteHandler>;
 	run: ReturnType<typeof vi.fn<(callbacks: IPNCallbacks) => void>>;
 };
 
@@ -54,6 +55,7 @@ function asIPNResponse(response: Response): IPNResponse {
 }
 
 function createFakeIPN(_config: CreateIPNConfig, options: FakeIPNOptions): FakeIPN {
+	const routes = new Map<string, IPNRouteHandler>();
 	const fake = {
 		callbacks: null,
 		fetch: vi.fn(async (request: Request) => {
@@ -64,7 +66,8 @@ function createFakeIPN(_config: CreateIPNConfig, options: FakeIPNOptions): FakeI
 		getSelf: vi.fn(() => ('self' in options ? options.self : self) ?? null),
 		login: vi.fn(() => fake.callbacks?.notifyBrowseToURL('https://login.tailscale.com/a/test')),
 		logout: vi.fn(),
-		route: vi.fn(),
+		route: vi.fn((path: string, handler: IPNRouteHandler) => routes.set(path, handler)),
+		routes,
 		run: vi.fn((callbacks: IPNCallbacks) => {
 			fake.callbacks = callbacks;
 			callbacks.notifyState(options.state ?? 'Running');
@@ -239,13 +242,131 @@ describe('worker fetch handler', () => {
 		});
 	});
 
-	it('returns the no-touch login page for a Tailscale self node', async () => {
-		const response = await dispatch(createRequest('/api/v1/notouchlogin'));
-		const body = await response.text();
+	function cookieValue(response: Response, name: string): string | null {
+		for (const cookie of response.headers.getSetCookie()) {
+			const [pair] = cookie.split(';');
+			const [key, ...value] = pair.split('=');
+			if (key === name) return value.join('=');
+		}
+		return null;
+	}
 
-		expect(response.status).toBe(200);
-		expect(body).toContain('Signing you in with Tailscale');
-		expect(body).toContain('data-token-url="http://tailflare.tailnet.ts.net/api/v1/notouchlogin"');
+	/** Simulates the browser following the redirect over the tailnet to the Durable Object's route. */
+	async function visitTailnet(location: string, sourceIP = '100.64.0.2'): Promise<Response> {
+		return runInDurableObject<Tailscale, Response>(env.TAILSCALE.getByName('DE'), async () => {
+			const url = new URL(location);
+			const handler = createdIPNs[0]?.routes.get(url.pathname);
+			if (!handler) throw new Error(`No tailnet route for ${url.pathname}`);
+			const response = (await handler({
+				destinationIP: url.hostname,
+				destinationPort: 80,
+				headers: {},
+				method: 'GET',
+				path: url.pathname,
+				sourceIP,
+				sourcePort: 50000,
+				url: location,
+			})) as Response;
+			return new Response(response.body, response);
+		});
+	}
+
+	async function startLogin(query = '') {
+		const start = await dispatch(createRequest(`/api/v1/notouchlogin${query}`));
+		const location = start.headers.get('Location') ?? '';
+		const nonce = cookieValue(start, 'tailflare_login_state');
+		return { start, location, nonce };
+	}
+
+	it('completes the no-touch login entirely through redirects', async () => {
+		const { start, location, nonce } = await startLogin('?redirect=%2Fme%3Ftab%3Dpeers');
+		expect(start.status).toBe(303);
+		expect(location).toMatch(/^http:\/\/100\.64\.0\.1\/api\/v1\/notouchlogin\?state=/);
+		expect(nonce).toBeTruthy();
+		expect(start.headers.getSetCookie()[0]).toContain('Path=/api/v1/notouchlogin');
+
+		const tailnet = await visitTailnet(location);
+		expect(tailnet.status).toBe(303);
+		const callback = tailnet.headers.get('Location') ?? '';
+		expect(callback).toMatch(/^https:\/\/tailflare\.test\/api\/v1\/notouchlogin\/callback\?code=/);
+		expect(new URL(callback).searchParams.get('code')).not.toContain('.'); // an opaque code, not the session JWT
+
+		const done = await dispatch(createRequest(new URL(callback).pathname + new URL(callback).search, { headers: { cookie: `tailflare_login_state=${nonce}` } }));
+		expect(done.status).toBe(303);
+		expect(done.headers.get('Location')).toBe('/me?tab=peers');
+		const session = cookieValue(done, 'tailflare_token');
+		expect(session).toBeTruthy();
+		const sessionCookie = done.headers.getSetCookie().find((c) => c.startsWith('tailflare_token='));
+		expect(sessionCookie).toContain('HttpOnly');
+		expect(sessionCookie).toContain('Max-Age=10800');
+		expect(sessionCookie).toContain('SameSite=Lax');
+		expect(sessionCookie).toContain('Secure');
+		expect(cookieValue(done, 'tailflare_login_state')).toBe('');
+
+		const me = await dispatch(createRequest('/api/v1/me', { headers: { cookie: `tailflare_token=${session}` } }));
+		expect(me.status).toBe(200);
+		expect((await jsonBody(me)).identity).toMatchObject({ name: 'device.tailnet.ts.net' });
+
+		// The code is single-use.
+		const replay = await dispatch(createRequest(new URL(callback).pathname + new URL(callback).search, { headers: { cookie: `tailflare_login_state=${nonce}` } }));
+		expect(replay.headers.get('Location')).toBe('/me?login_error=invalid_code');
+	});
+
+	it('skips the round trip when the browser already has a valid session', async () => {
+		const token = await createToken();
+		const response = await dispatch(createRequest('/api/v1/notouchlogin?redirect=/me', { headers: { cookie: `tailflare_token=${token}` } }));
+
+		expect(response.status).toBe(303);
+		expect(response.headers.get('Location')).toBe('/me');
+	});
+
+	it('ignores off-site redirect targets', async () => {
+		const token = await createToken();
+		for (const redirect of ['https://evil.test/', '//evil.test/', '/\\evil.test']) {
+			const response = await dispatch(
+				createRequest(`/api/v1/notouchlogin?redirect=${encodeURIComponent(redirect)}`, { headers: { cookie: `tailflare_token=${token}` } }),
+			);
+			expect(response.headers.get('Location')).toBe('/me');
+		}
+	});
+
+	it('refuses to complete a login started in another browser', async () => {
+		const { location } = await startLogin();
+		const callback = new URL((await visitTailnet(location)).headers.get('Location') ?? '');
+
+		const withoutCookie = await dispatch(createRequest(callback.pathname + callback.search));
+		expect(withoutCookie.headers.get('Location')).toBe('/me?login_error=state_mismatch');
+		expect(withoutCookie.headers.get('Set-Cookie') ?? '').not.toContain('tailflare_token=ey');
+
+		const wrongCookie = await dispatch(createRequest(callback.pathname + callback.search, { headers: { cookie: 'tailflare_login_state=attacker' } }));
+		expect(wrongCookie.headers.get('Location')).toBe('/me?login_error=state_mismatch');
+	});
+
+	it('does not accept a login state token as a session', async () => {
+		const { location } = await startLogin();
+		const state = new URL(location).searchParams.get('state') ?? '';
+		const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+		try {
+			const me = await dispatch(createRequest('/api/v1/me', { headers: { cookie: `tailflare_token=${state}` } }));
+			expect(me.status).toBe(401);
+		} finally {
+			error.mockRestore();
+		}
+	});
+
+	it('rejects tailnet requests from unknown peers', async () => {
+		const { location } = await startLogin();
+		const response = await visitTailnet(location, '100.64.0.99');
+
+		expect(response.status).toBe(403);
+		expect(response.headers.get('Location')).toBeNull();
+	});
+
+	it('falls back to MagicDNS when the node has no IPv4 address', async () => {
+		useNextIPN({ self: { ...self, addresses: ['fd7a:115c:a1e0::1'] } });
+		const { location } = await startLogin();
+
+		expect(location).toMatch(/^http:\/\/tailflare\.tailnet\.ts\.net\/api\/v1\/notouchlogin\?state=/);
 	});
 
 	it('redirects no-touch login to the Tailscale login URL when the Durable Object needs login', async () => {
@@ -258,7 +379,7 @@ describe('worker fetch handler', () => {
 		expect(createdIPNs[0]?.login).toHaveBeenCalledOnce();
 	});
 
-	it('rejects no-touch login when the self node has no MagicDNS name', async () => {
+	it('rejects no-touch login when the self node has no tailnet address', async () => {
 		useNextIPN({ self: null });
 		const response = await dispatch(createRequest('/api/v1/notouchlogin'));
 
@@ -268,32 +389,13 @@ describe('worker fetch handler', () => {
 		});
 	});
 
-	it('rejects a no-touch login callback without a token', async () => {
-		const response = await dispatch(createRequest('/api/v1/notouchlogin/callback'));
+	it('sends incomplete or forged callbacks back to the sign-in page with an error', async () => {
+		const missing = await dispatch(createRequest('/api/v1/notouchlogin/callback'));
+		expect(missing.status).toBe(303);
+		expect(missing.headers.get('Location')).toBe('/me?login_error=missing_parameters');
 
-		expect(response.status).toBe(400);
-		expect(await jsonBody(response)).toMatchObject({ errorMessage: 'Missing token parameter' });
-	});
-
-	it('rejects a no-touch login callback with an invalid token', async () => {
-		const response = await dispatch(createRequest('/api/v1/notouchlogin/callback?token=not-a-jwt'));
-
-		expect(response.status).toBe(401);
-		expect(await jsonBody(response)).toMatchObject({ errorMessage: 'Invalid token' });
-	});
-
-	it('sets the authentication cookie for a valid no-touch login callback token', async () => {
-		const token = await createToken();
-		const response = await dispatch(createRequest(`/api/v1/notouchlogin/callback?token=${encodeURIComponent(token)}`));
-		const cookie = response.headers.get('Set-Cookie');
-
-		expect(response.status).toBe(303);
-		expect(response.headers.get('Location')).toBe('/me');
-		expect(cookie).toContain(`tailflare_token=${token}`);
-		expect(cookie).toContain('HttpOnly');
-		expect(cookie).toContain('Max-Age=10800');
-		expect(cookie).toContain('SameSite=Lax');
-		expect(cookie).toContain('Secure');
+		const forged = await dispatch(createRequest('/api/v1/notouchlogin/callback?code=x&state=not-a-jwt'));
+		expect(forged.headers.get('Location')).toBe('/me?login_error=expired');
 	});
 
 	it('rejects proxy requests without a url parameter', async () => {

@@ -82,20 +82,21 @@ curl "https://your-worker.your-subdomain.workers.dev/api/v1/proxy?url=http://fin
 
 ### 3. Gate Worker Access With Your Tailnet
 
-Tailflare can also protect Worker routes by requiring a browser to fetch a short-lived token from the Durable Object's MagicDNS name over Tailscale. Only devices that can reach your tailnet can complete the login.
+Tailflare can also protect Worker routes by requiring the browser to prove it can reach the Durable Object's Tailscale node. Only devices on your tailnet can complete the login, and on those it is invisible: visiting `/me` signs you in with no clicks.
 
 ```bash
-# Start the tailnet-backed login flow
-open https://your-worker.your-subdomain.workers.dev/api/v1/notouchlogin
+open https://your-worker.your-subdomain.workers.dev/me
+# or start explicitly, with an optional same-origin return path:
+open "https://your-worker.your-subdomain.workers.dev/api/v1/notouchlogin?redirect=/me"
 ```
 
-The page asks the browser to fetch:
+The flow is redirect-only (no cross-origin `fetch`, so HTTPS mixed-content rules don't get in the way):
 
-```text
-http://<tailflare-magic-dns-name>/api/v1/notouchlogin
-```
+1. `GET /api/v1/notouchlogin` sets a short-lived nonce cookie and redirects to `http://<tailflare tailnet IP>/api/v1/notouchlogin?state=<signed state>`.
+2. That address is only reachable over Tailscale. The Durable Object resolves the source IP to a tailnet peer, signs a 3-hour session JWT for it, and redirects back to the Worker callback with a **single-use, 60-second code** (the JWT itself never appears in a URL).
+3. `/api/v1/notouchlogin/callback` checks the signed state and nonce cookie (so a login can't be completed in a different browser), redeems the code, sets the HTTP-only `tailflare_token` cookie, and redirects to the requested path.
 
-That request only succeeds from inside your tailnet. The Durable Object identifies the source Tailscale peer, signs a JWT for that device, and the Worker callback stores it in an HTTP-only cookie before redirecting to `/me`.
+Browsers that already have a valid session skip the round trip. Failures land on `/me?login_error=…`, which shows the reason and a retry button instead of looping.
 
 The `/me` page is a Vite + React SPA route styled with Tailwind CSS. It uses a typed oRPC client against the `/rpc` transport to load the current user from the `me` procedure, including verified JWT claims and live Tailflare/Tailscale context.
 

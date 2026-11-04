@@ -7,6 +7,7 @@ vi.mock('@tailflare/tailscale-wasm', () => ({ createIPN: vi.fn() }));
 
 import { createIPN } from '@tailflare/tailscale-wasm';
 import { Tailscale } from './tailscale';
+import { getSigningKey, SESSION_AUDIENCE, signLoginState } from '../auth/notouch';
 
 const peer: IPNNetMapPeerNode = {
 	name: 'device.tailnet.ts.net',
@@ -212,7 +213,7 @@ describe('Tailscale durable object', () => {
 			return instance.createToken(peer);
 		});
 
-		const { payload } = await jose.jwtVerify(token, new TextEncoder().encode(env.AUTH_SECRET));
+		const { payload } = await jose.jwtVerify(token, new TextEncoder().encode(env.AUTH_SECRET), { audience: SESSION_AUDIENCE });
 		expect(payload).toMatchObject({
 			addresses: peer.addresses,
 			machineKey: peer.machineKey,
@@ -223,71 +224,100 @@ describe('Tailscale durable object', () => {
 		expect(payload.exp).toBeGreaterThan(payload.iat as number);
 	});
 
-	it('serves the no-touch login IPN route for a known source peer', async () => {
-		const result = await runInDurableObject(getStub(), async () => {
-			const fake = createdIPNs[0];
-			const handler = fake.routes.get('/api/v1/notouchlogin');
+	function routeRequest(sourceIP: string, query = ''): IPNRouteRequest {
+		return {
+			destinationIP: '100.64.0.1',
+			destinationPort: 80,
+			headers: {},
+			method: 'GET',
+			path: '/api/v1/notouchlogin',
+			sourceIP,
+			sourcePort: 50000,
+			url: `http://100.64.0.1/api/v1/notouchlogin${query}`,
+		};
+	}
+
+	async function loginState(nonce = 'nonce-1') {
+		return signLoginState(
+			{ nonce, callback: 'https://tailflare.test/api/v1/notouchlogin/callback', redirect: '/me', node: 'DE' },
+			getSigningKey(env.AUTH_SECRET),
+		);
+	}
+
+	it('redirects a known tailnet peer back to the callback with a single-use code', async () => {
+		const state = await loginState();
+		const result = await runInDurableObject(getStub(), async (instance: Tailscale) => {
+			const handler = createdIPNs[0].routes.get('/api/v1/notouchlogin');
 			if (!handler) throw new Error('Route was not registered');
 
-			const response = await handler({
-				destinationIP: '100.64.0.1',
-				destinationPort: 80,
-				headers: {},
-				method: 'GET',
-				path: '/api/v1/notouchlogin',
-				sourceIP: '100.64.0.2',
-				sourcePort: 443,
-				url: 'http://tailflare/api/v1/notouchlogin',
-			});
-
-			const workerResponse = response as Response;
+			const response = (await handler(routeRequest('100.64.0.2', `?state=${state}`))) as Response;
+			const location = new URL(response.headers.get('Location') ?? '');
+			const code = location.searchParams.get('code') ?? '';
 
 			return {
-				cors: workerResponse.headers.get('Access-Control-Allow-Origin'),
-				contentType: workerResponse.headers.get('Content-Type'),
-				status: workerResponse.status,
-				token: await workerResponse.text(),
+				body: await response.text(),
+				cors: response.headers.get('Access-Control-Allow-Origin'),
+				location: `${location.origin}${location.pathname}`,
+				state: location.searchParams.get('state'),
+				status: response.status,
+				wrongNonce: instance.redeemLoginCode(code, 'other-nonce'),
+				token: await (async () => {
+					// wrongNonce consumed the first code; mint another for the happy path.
+					const again = (await handler(routeRequest('100.64.0.2', `?state=${state}`))) as Response;
+					const againCode = new URL(again.headers.get('Location') ?? '').searchParams.get('code') ?? '';
+					return { first: instance.redeemLoginCode(againCode, 'nonce-1'), second: instance.redeemLoginCode(againCode, 'nonce-1') };
+				})(),
 			};
 		});
 
-		const { payload } = await jose.jwtVerify(result.token, new TextEncoder().encode(env.AUTH_SECRET));
-		expect(result).toMatchObject({
-			cors: '*',
-			contentType: 'text/plain; charset=utf-8',
-			status: 200,
-		});
+		expect(result.status).toBe(303);
+		expect(result.body).toBe('');
+		expect(result.cors).toBeNull();
+		expect(result.location).toBe('https://tailflare.test/api/v1/notouchlogin/callback');
+		expect(result.state).toBe(state);
+		expect(result.wrongNonce).toBeNull();
+		expect(result.token.second).toBeNull();
+		const { payload } = await jose.jwtVerify(result.token.first ?? '', getSigningKey(env.AUTH_SECRET), { audience: SESSION_AUDIENCE });
 		expect(payload.sub).toBe(peer.name);
 	});
 
-	it('rejects the no-touch login IPN route for an unknown source peer', async () => {
+	it('rejects expired login codes', async () => {
+		const state = await loginState();
+		const result = await runInDurableObject(getStub(), async (instance: Tailscale) => {
+			const handler = createdIPNs[0].routes.get('/api/v1/notouchlogin')!;
+			const response = (await handler(routeRequest('100.64.0.2', `?state=${state}`))) as Response;
+			const code = new URL(response.headers.get('Location') ?? '').searchParams.get('code') ?? '';
+			vi.useFakeTimers({ now: Date.now() + 2 * 60 * 1000, toFake: ['Date'] });
+			try {
+				return instance.redeemLoginCode(code, 'nonce-1');
+			} finally {
+				vi.useRealTimers();
+			}
+		});
+
+		expect(result).toBeNull();
+	});
+
+	it('rejects the no-touch login IPN route without a valid login state', async () => {
 		const result = await runInDurableObject(getStub(), async () => {
-			const fake = createdIPNs[0];
-			const handler = fake.routes.get('/api/v1/notouchlogin');
-			if (!handler) throw new Error('Route was not registered');
-			const response = await handler({
-				destinationIP: '100.64.0.1',
-				destinationPort: 80,
-				headers: {},
-				method: 'GET',
-				path: '/api/v1/notouchlogin',
-				sourceIP: '100.64.0.99',
-				sourcePort: 443,
-				url: 'http://tailflare/api/v1/notouchlogin',
-			});
-
-			return { body: await readError(response), status: response.status };
+			const handler = createdIPNs[0].routes.get('/api/v1/notouchlogin')!;
+			const missing = (await handler(routeRequest('100.64.0.2'))) as Response;
+			const forged = (await handler(routeRequest('100.64.0.2', '?state=not-a-jwt'))) as Response;
+			return { missing: missing.status, forged: forged.status, type: missing.headers.get('Content-Type') };
 		});
 
-		expect(result).toEqual({
-			body: {
-				errorCode: 'errors.tailflare.tailscale.peerNotFound',
-				errorMessage: 'Peer not found',
-				intent: 'unknown',
-				numericErrorCode: 3000,
-				originatingService: 'tailflare',
-			},
-			status: 404,
+		expect(result).toEqual({ missing: 400, forged: 400, type: 'text/html; charset=utf-8' });
+	});
+
+	it('rejects the no-touch login IPN route for an unknown source peer', async () => {
+		const state = await loginState();
+		const result = await runInDurableObject(getStub(), async () => {
+			const handler = createdIPNs[0].routes.get('/api/v1/notouchlogin')!;
+			const response = (await handler(routeRequest('100.64.0.99', `?state=${state}`))) as Response;
+			return { status: response.status, location: response.headers.get('Location') };
 		});
+
+		expect(result).toEqual({ status: 403, location: null });
 	});
 
 	it('rejects proxy requests when the target peer cannot be found', async () => {
